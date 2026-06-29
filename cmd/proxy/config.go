@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ecdh"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -204,6 +206,9 @@ func generateConfigFilesWithOutput(opts generateConfigOptions, out io.Writer) er
 	}
 	forceCIDRs := splitCommaList(opts.forceCIDRs)
 	if err := validateGeneratedOptions(normalizedTarget, protocol, opts, token); err != nil {
+		return err
+	}
+	if err := prepareGeneratedRealityKeys(normalizedTarget, &opts); err != nil {
 		return err
 	}
 	serverCfg, clientCfg := buildGeneratedConfigs(protocol, transport, token, opts, mux, muxSet)
@@ -473,13 +478,17 @@ func (w *configWizard) collect(ctx context.Context) (generateConfigOptions, erro
 		if err != nil {
 			return generateConfigOptions{}, err
 		}
-		opts.realityPublicKey, err = w.readString("REALITY client publicKey", opts.realityPublicKey)
-		if err != nil {
-			return generateConfigOptions{}, err
+		if configTargetIncludesServer(opts.target) {
+			opts.realityPrivateKey, err = w.readString("REALITY server privateKey (empty = auto generate)", opts.realityPrivateKey)
+			if err != nil {
+				return generateConfigOptions{}, err
+			}
 		}
-		opts.realityPrivateKey, err = w.readString("REALITY server privateKey", opts.realityPrivateKey)
-		if err != nil {
-			return generateConfigOptions{}, err
+		if configTargetIncludesClient(opts.target) && !configTargetIncludesServer(opts.target) {
+			opts.realityPublicKey, err = w.readString("REALITY client publicKey", opts.realityPublicKey)
+			if err != nil {
+				return generateConfigOptions{}, err
+			}
 		}
 		opts.realityShortID, err = w.readString("REALITY client shortId", opts.realityShortID)
 		if err != nil {
@@ -750,6 +759,100 @@ func applyGeneratedSecurity(serverCfg *generatedRouteConfig, clientCfg *generate
 	clientCfg.RealityPublicKey = strings.TrimSpace(opts.realityPublicKey)
 	clientCfg.RealityShortID = strings.TrimSpace(opts.realityShortID)
 	clientCfg.RealitySpiderX = strings.TrimSpace(opts.realitySpiderX)
+}
+
+func prepareGeneratedRealityKeys(target string, opts *generateConfigOptions) error {
+	if opts == nil {
+		return errors.New("generate config options are nil")
+	}
+	security := strings.TrimSpace(opts.tunnelSecurity)
+	if security == "" || security == "none" {
+		return nil
+	}
+	if security != "reality" {
+		return fmt.Errorf("invalid tunnel security %q; supported values: none, reality", security)
+	}
+
+	privateKey := strings.TrimSpace(opts.realityPrivateKey)
+	publicKey := strings.TrimSpace(opts.realityPublicKey)
+	if configTargetIncludesServer(target) && privateKey == "" {
+		generated, err := generateRealityPrivateKey()
+		if err != nil {
+			return err
+		}
+		privateKey = generated
+		opts.realityPrivateKey = generated
+	}
+	if privateKey != "" {
+		derived, err := deriveRealityPublicKey(privateKey)
+		if err != nil {
+			return err
+		}
+		if publicKey != "" && publicKey != derived {
+			return errors.New("--reality-public-key does not match --reality-private-key")
+		}
+		publicKey = derived
+		if configTargetIncludesClient(target) {
+			opts.realityPublicKey = derived
+		}
+	}
+	if configTargetIncludesClient(target) && publicKey == "" {
+		return errors.New("--reality-public-key is required when generating REALITY client config unless --reality-private-key is provided")
+	}
+	return nil
+}
+
+func configTargetIncludesServer(target string) bool {
+	return target == configTargetBoth || target == configTargetServer
+}
+
+func configTargetIncludesClient(target string) bool {
+	return target == configTargetBoth || target == configTargetClient
+}
+
+func generateRealityPrivateKey() (string, error) {
+	privateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return "", fmt.Errorf("generate REALITY private key: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(privateKey.Bytes()), nil
+}
+
+func deriveRealityPublicKey(privateKeyText string) (string, error) {
+	privateKeyBytes, err := decodeRealityKey(privateKeyText, "REALITY private key")
+	if err != nil {
+		return "", err
+	}
+	privateKey, err := ecdh.X25519().NewPrivateKey(privateKeyBytes)
+	if err != nil {
+		return "", fmt.Errorf("parse REALITY private key: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(privateKey.PublicKey().Bytes()), nil
+}
+
+func decodeRealityKey(value string, name string) ([]byte, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, fmt.Errorf("%s is required", name)
+	}
+	encodings := []*base64.Encoding{
+		base64.RawURLEncoding,
+		base64.URLEncoding,
+		base64.RawStdEncoding,
+		base64.StdEncoding,
+	}
+	var decodeErr error
+	for _, encoding := range encodings {
+		decoded, err := encoding.DecodeString(trimmed)
+		if err == nil {
+			if len(decoded) != 32 {
+				return nil, fmt.Errorf("invalid %s length: %d", name, len(decoded))
+			}
+			return decoded, nil
+		}
+		decodeErr = err
+	}
+	return nil, fmt.Errorf("decode %s: %w", name, decodeErr)
 }
 
 func validateGeneratedOptions(target string, protocol string, opts generateConfigOptions, token string) error {

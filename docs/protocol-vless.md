@@ -33,8 +33,8 @@ Chinese version: [protocol-vless.zh-CN.md](protocol-vless.zh-CN.md)
 | `tunnel_flow` | server/client | VLESS flow, usually `xtls-rprx-vision` for Vision. |
 | `reality_server_name` | client | REALITY serverName sent by the client. |
 | `reality_server_names` | server | Allowed REALITY serverName values. |
-| `reality_public_key` | client | REALITY public key. |
-| `reality_private_key` | server | REALITY private key. |
+| `reality_public_key` | client | REALITY public key. `proxy config` derives it from `reality_private_key` when both sides are generated together. |
+| `reality_private_key` | server | REALITY private key. In interactive `proxy config`, leave it empty to generate one automatically. |
 | `reality_short_id` | client | Client shortId in hex, may be empty. |
 | `reality_short_ids` | server | Allowed shortId list, may include the empty value. |
 | `reality_fingerprint` | client | uTLS fingerprint, for example `chrome`. |
@@ -98,6 +98,8 @@ bin/proxy config \
   --flow xtls-rprx-vision \
   --server-addr proxy.example.com:443
 ```
+
+When this command runs in interactive mode, an empty `reality_private_key` generates a new X25519 key pair. The generated `server.json` receives `reality_private_key`, and the generated `client.json` receives the matching `reality_public_key`.
 
 server:
 

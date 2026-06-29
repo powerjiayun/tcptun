@@ -164,7 +164,7 @@ bin/proxy server \
   --reality-dest example.com:443
 ```
 
-Generate REALITY keys with `xray x25519` or another compatible tool. Keep the private key outside version control. `--reality-spider-x` is accepted for Xray config compatibility on the client side; successful REALITY handshakes do not need it.
+REALITY keys can be generated with `proxy config`, `xray x25519`, or another compatible tool. In `proxy config` interactive mode, leaving `reality_private_key` empty generates it automatically and derives the matching client `reality_public_key`. Keep the private key outside version control. `--reality-spider-x` is accepted for Xray config compatibility on the client side; successful REALITY handshakes do not need it.
 
 Run client/server mode with Trojan:
 
@@ -279,7 +279,7 @@ The tunnel protocol is selected with `--tunnel-protocol` or `tunnel_protocol` in
 
 For Xray REALITY/Vision client compatibility, use `proxy client` with `--transport raw`, `--tunnel-protocol vless`, `--tunnel-security reality`, and `--flow xtls-rprx-vision`. REALITY requires `--reality-server-name`, `--reality-public-key`, and a UUID `--token`; `--reality-fingerprint` defaults to `chrome`.
 
-For Xray REALITY/Vision server compatibility, use `proxy server` with `--transport raw`, `--tunnel-protocol vless`, `--tunnel-security reality`, and `--flow xtls-rprx-vision`. REALITY server mode requires `--reality-private-key`, `--reality-server-names`, and a fallback `--reality-dest` such as `example.com:443`. `--reality-short-ids` can restrict allowed shortIds; if omitted, the empty shortId is allowed. The Xray client must use the matching public key, server name, shortId, UUID, and flow.
+For Xray REALITY/Vision server compatibility, use `proxy server` with `--transport raw`, `--tunnel-protocol vless`, `--tunnel-security reality`, and `--flow xtls-rprx-vision`. REALITY server mode requires `--reality-private-key`, `--reality-server-names`, and a fallback `--reality-dest` such as `example.com:443`. `proxy config` can auto-generate `reality_private_key` and derive the matching client `reality_public_key`. `--reality-short-ids` can restrict allowed shortIds; if omitted, the empty shortId is allowed. The Xray client must use the matching public key, server name, shortId, UUID, and flow.
 
 Only `custom` currently supports SOCKS5 UDP relay and tunnel multiplexing. `vless`, `vmess`, and `trojan` carry TCP streams over the selected transport.
 

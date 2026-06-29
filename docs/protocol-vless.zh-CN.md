@@ -33,8 +33,8 @@ English version: [protocol-vless.md](protocol-vless.md)
 | `tunnel_flow` | server/client | Vision 常用 `xtls-rprx-vision`。 |
 | `reality_server_name` | client | client 发送的 REALITY serverName。 |
 | `reality_server_names` | server | server 允许的 serverName 列表，逗号分隔或 JSON 数组。 |
-| `reality_public_key` | client | REALITY public key。 |
-| `reality_private_key` | server | REALITY private key。 |
+| `reality_public_key` | client | REALITY public key。`proxy config` 同时生成两端配置时会从 `reality_private_key` 派生。 |
+| `reality_private_key` | server | REALITY private key。在交互式 `proxy config` 中留空会自动生成。 |
 | `reality_short_id` | client | client 使用的 shortId 十六进制字符串，可为空。 |
 | `reality_short_ids` | server | server 允许的 shortId 列表，可为空列表。 |
 | `reality_fingerprint` | client | uTLS fingerprint，例如 `chrome`。 |
@@ -98,6 +98,8 @@ bin/proxy config \
   --flow xtls-rprx-vision \
   --server-addr proxy.example.com:443
 ```
+
+交互模式下，如果 `reality_private_key` 留空，程序会自动生成新的 X25519 key pair。生成的 `server.json` 会写入 `reality_private_key`，生成的 `client.json` 会写入匹配的 `reality_public_key`。
 
 server:
 

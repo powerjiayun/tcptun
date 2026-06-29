@@ -86,6 +86,53 @@ func TestGenerateConfigFilesClientOutputAlias(t *testing.T) {
 	}
 }
 
+func TestGenerateConfigFilesRealityAutoGeneratesKeys(t *testing.T) {
+	dir := t.TempDir()
+	opts := generateConfigOptions{
+		target:             configTargetBoth,
+		protocol:           proxypkg.TunnelProtocolVLESS,
+		transport:          proxypkg.TunnelTransportRaw,
+		outDir:             dir,
+		serverOutput:       "server.json",
+		clientOutput:       "client.json",
+		serverListen:       "0.0.0.0:443",
+		clientListen:       "127.0.0.1:1080",
+		serverAddr:         "proxy.example.com:443",
+		tunnelSecurity:     "reality",
+		tunnelFlow:         "xtls-rprx-vision",
+		realityServerName:  "example.com",
+		realityServerNames: "example.com",
+		realityDest:        "example.com:443",
+		realityFingerprint: "chrome",
+		realityShortID:     "",
+		realityShortIDs:    "",
+		realitySpiderX:     "/",
+		overwrite:          true,
+	}
+	if err := generateConfigFiles(opts); err != nil {
+		t.Fatal(err)
+	}
+
+	server := readGeneratedConfigForTest(t, filepath.Join(dir, "server.json"))
+	client := readGeneratedConfigForTest(t, filepath.Join(dir, "client.json"))
+	if server.RealityPrivateKey == "" {
+		t.Fatal("server reality_private_key is empty")
+	}
+	wantPublicKey, err := deriveRealityPublicKey(server.RealityPrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.RealityPublicKey != wantPublicKey {
+		t.Fatalf("client reality_public_key = %q, want %q", client.RealityPublicKey, wantPublicKey)
+	}
+	if server.RealityPublicKey != "" {
+		t.Fatalf("server reality_public_key = %q, want empty", server.RealityPublicKey)
+	}
+	if client.RealityPrivateKey != "" {
+		t.Fatalf("client reality_private_key = %q, want empty", client.RealityPrivateKey)
+	}
+}
+
 func TestRunInteractiveConfigGeneratesBothConfigs(t *testing.T) {
 	dir := t.TempDir()
 	opts := generateConfigOptions{
@@ -147,6 +194,68 @@ func TestRunInteractiveConfigGeneratesBothConfigs(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "Interactive config generator") {
 		t.Fatalf("interactive output missing welcome: %q", output.String())
+	}
+}
+
+func TestRunInteractiveConfigRealityAutoGeneratesKeys(t *testing.T) {
+	dir := t.TempDir()
+	opts := generateConfigOptions{
+		target:       configTargetBoth,
+		protocol:     proxypkg.TunnelProtocolCustom,
+		transport:    proxypkg.TunnelTransportRaw,
+		outDir:       ".",
+		serverOutput: "server.json",
+		clientOutput: "client.json",
+		routeOutput:  "route.json",
+		serverListen: "0.0.0.0:9443",
+		clientListen: "127.0.0.1:1080",
+		serverAddr:   "127.0.0.1:9443",
+		tunnelPath:   "/proxy",
+	}
+	input := strings.Join([]string{
+		"2",
+		"",
+		"",
+		"proxy.example.com:443",
+		"0.0.0.0:443",
+		"",
+		"",
+		"",
+		"2",
+		"",
+		"example.com",
+		"example.com",
+		"",
+		"",
+		"",
+		"",
+		"example.com:443",
+		"",
+		"",
+		"",
+		"",
+		dir,
+		"",
+		"",
+		"",
+		"",
+	}, "\n") + "\n"
+	var output strings.Builder
+	if err := runInteractiveConfig(t.Context(), opts, strings.NewReader(input), &output, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	server := readGeneratedConfigForTest(t, filepath.Join(dir, "server.json"))
+	client := readGeneratedConfigForTest(t, filepath.Join(dir, "client.json"))
+	if server.RealityPrivateKey == "" {
+		t.Fatal("server reality_private_key is empty")
+	}
+	wantPublicKey, err := deriveRealityPublicKey(server.RealityPrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.RealityPublicKey != wantPublicKey {
+		t.Fatalf("client reality_public_key = %q, want %q", client.RealityPublicKey, wantPublicKey)
 	}
 }
 
