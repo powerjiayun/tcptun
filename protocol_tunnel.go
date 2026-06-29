@@ -25,9 +25,6 @@ const (
 	vlessAtypIPv6     = byte(0x03)
 	vlessMaxAddonSize = 1024
 
-	vmessLiteVersion  = byte(0x01)
-	vmessLiteStatusOK = byte(0x00)
-
 	protocolMaxLineLength = 256
 )
 
@@ -39,9 +36,10 @@ var (
 )
 
 type protocolTunnelRequest struct {
-	host string
-	port uint16
-	flow string
+	host         string
+	port         uint16
+	flow         string
+	vmessSession *vmessSession
 }
 
 func (s *proxyServer) handleProtocolTunnelConn(ctx context.Context, conn net.Conn, reader *bufio.Reader) error {
@@ -59,7 +57,7 @@ func (s *proxyServer) readProtocolTunnelRequest(reader *bufio.Reader) (protocolT
 	case tunnelProtocolTrojan:
 		return readTrojanTCPRequest(reader, s.cfg.Token)
 	case tunnelProtocolVMess:
-		return readVMessLiteTCPRequest(reader, s.cfg.Token)
+		return readVMessTCPRequest(reader, s.cfg.Token)
 	default:
 		return protocolTunnelRequest{}, fmt.Errorf("unsupported tunnel protocol %q", s.cfg.TunnelProtocol)
 	}
@@ -81,6 +79,17 @@ func (s *proxyServer) handleProtocolTunnelTCP(ctx context.Context, conn net.Conn
 			clientReader = vision
 		}
 	}
+	if s.cfg.TunnelProtocol == tunnelProtocolVMess {
+		if req.vmessSession == nil {
+			return errProtocolInvalidResponse
+		}
+		vmessConn, err := newVMessResponseConn(conn, *req.vmessSession)
+		if err != nil {
+			return err
+		}
+		clientConn = vmessConn
+		clientReader = newVMessRequestReader(reader, *req.vmessSession)
+	}
 	target := net.JoinHostPort(req.host, strconv.Itoa(int(req.port)))
 	logTarget := accessTarget(req.host, strconv.Itoa(int(req.port)))
 	outbound, err := s.dialer.DialContext(ctx, "tcp", target)
@@ -91,7 +100,14 @@ func (s *proxyServer) handleProtocolTunnelTCP(ctx context.Context, conn net.Conn
 	if err := tuneTCP(outbound); err != nil {
 		return err
 	}
-	if err := s.writeProtocolTunnelResponse(conn); err != nil {
+	if s.cfg.TunnelProtocol == tunnelProtocolVMess {
+		if req.vmessSession == nil {
+			return errProtocolInvalidResponse
+		}
+		if err := writeVMessResponseHeader(conn, *req.vmessSession); err != nil {
+			return err
+		}
+	} else if err := s.writeProtocolTunnelResponse(conn); err != nil {
 		return err
 	}
 	if err := s.bridge(outbound, clientConn, clientReader); err != nil {
@@ -126,7 +142,7 @@ func (s *proxyServer) writeProtocolTunnelResponse(w io.Writer) error {
 	case tunnelProtocolVLESS:
 		return writeVLESSResponse(w)
 	case tunnelProtocolVMess:
-		return writeVMessLiteResponse(w)
+		return errProtocolInvalidResponse
 	case tunnelProtocolTrojan:
 		return nil
 	default:
@@ -143,7 +159,14 @@ func (s *proxyServer) connectViaProtocolTunnelTCP(ctx context.Context, req socks
 	if err := tuneTCP(conn); err != nil {
 		return nil, target, closeAfterError(conn, err)
 	}
-	if err := s.writeProtocolTunnelRequest(conn, req); err != nil {
+	var vmessSession *vmessSession
+	if s.cfg.TunnelProtocol == tunnelProtocolVMess {
+		session, err := writeVMessTCPRequest(conn, s.cfg.Token, req.host, req.port)
+		if err != nil {
+			return nil, target, closeAfterError(conn, err)
+		}
+		vmessSession = &session
+	} else if err := s.writeProtocolTunnelRequest(conn, req); err != nil {
 		return nil, target, closeAfterError(conn, err)
 	}
 	if s.cfg.TunnelProtocol == tunnelProtocolVLESS && isVisionFlow(s.cfg.TunnelFlow) {
@@ -156,6 +179,9 @@ func (s *proxyServer) connectViaProtocolTunnelTCP(ctx context.Context, req socks
 			return nil, target, closeAfterError(vision, err)
 		}
 		return vision, target, nil
+	}
+	if vmessSession != nil {
+		return newVMessClientConn(conn, *vmessSession), target, nil
 	}
 	if err := s.readProtocolTunnelResponse(conn); err != nil {
 		return nil, target, closeAfterError(conn, err)
@@ -170,7 +196,8 @@ func (s *proxyServer) writeProtocolTunnelRequest(w io.Writer, req socksRequest) 
 	case tunnelProtocolTrojan:
 		return writeTrojanTCPRequest(w, s.cfg.Token, req.host, req.port)
 	case tunnelProtocolVMess:
-		return writeVMessLiteTCPRequest(w, s.cfg.Token, req.host, req.port)
+		_, err := writeVMessTCPRequest(w, s.cfg.Token, req.host, req.port)
+		return err
 	default:
 		return fmt.Errorf("unsupported tunnel protocol %q", s.cfg.TunnelProtocol)
 	}
@@ -181,7 +208,7 @@ func (s *proxyServer) readProtocolTunnelResponse(reader io.Reader) error {
 	case tunnelProtocolVLESS:
 		return readVLESSResponse(reader)
 	case tunnelProtocolVMess:
-		return readVMessLiteResponse(reader)
+		return errProtocolInvalidResponse
 	case tunnelProtocolTrojan:
 		return nil
 	default:
@@ -459,65 +486,6 @@ func readTrojanTCPRequest(reader *bufio.Reader, expectedPassword string) (protoc
 func trojanPasswordHash(password string) string {
 	sum := sha256.Sum224([]byte(password))
 	return hex.EncodeToString(sum[:])
-}
-
-func writeVMessLiteTCPRequest(w io.Writer, token string, host string, port uint16) error {
-	userID, err := parseUUIDToken(token)
-	if err != nil {
-		return err
-	}
-	header := make([]byte, 0, 64+len(host))
-	header = append(header, vmessLiteVersion)
-	header = append(header, userID[:]...)
-	header = append(header, protocolCmdTCP)
-	header = appendUint16(header, port)
-	var appendErr error
-	header, appendErr = appendVLESSAddress(header, host)
-	if appendErr != nil {
-		return appendErr
-	}
-	return writeAll(w, header)
-}
-
-func readVMessLiteTCPRequest(reader io.Reader, expectedToken string) (protocolTunnelRequest, error) {
-	header := make([]byte, 21)
-	if _, err := io.ReadFull(reader, header); err != nil {
-		return protocolTunnelRequest{}, err
-	}
-	if header[0] != vmessLiteVersion {
-		return protocolTunnelRequest{}, errTunnelBadVersion
-	}
-	userID := [16]byte{}
-	copy(userID[:], header[1:17])
-	if err := verifyUUIDToken(expectedToken, userID); err != nil {
-		return protocolTunnelRequest{}, err
-	}
-	if header[17] != protocolCmdTCP {
-		return protocolTunnelRequest{}, errProtocolUnsupported
-	}
-	host, err := readVLESSAddress(reader, header[20])
-	if err != nil {
-		return protocolTunnelRequest{}, err
-	}
-	return protocolTunnelRequest{
-		host: host,
-		port: binary.BigEndian.Uint16(header[18:20]),
-	}, nil
-}
-
-func writeVMessLiteResponse(w io.Writer) error {
-	return writeAll(w, []byte{vmessLiteVersion, vmessLiteStatusOK})
-}
-
-func readVMessLiteResponse(reader io.Reader) error {
-	header := make([]byte, 2)
-	if _, err := io.ReadFull(reader, header); err != nil {
-		return err
-	}
-	if header[0] != vmessLiteVersion || header[1] != vmessLiteStatusOK {
-		return errProtocolInvalidResponse
-	}
-	return nil
 }
 
 func appendSocksAddress(dst []byte, host string, port uint16) ([]byte, error) {

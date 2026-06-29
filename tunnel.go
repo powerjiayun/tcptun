@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -70,6 +71,16 @@ func runRawTunnelServer(ctx context.Context, cfg config, log io.Writer) error {
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
 		return err
+	}
+	tlsConfig, err := rawTunnelTLSServerConfig(cfg)
+	if err != nil {
+		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	if tlsConfig != nil {
+		listener = tls.NewListener(listener, tlsConfig)
 	}
 	defer func() {
 		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {

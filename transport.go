@@ -364,6 +364,13 @@ func (s *proxyServer) dialTunnelTransport(ctx context.Context) (net.Conn, error)
 		if err != nil {
 			return nil, err
 		}
+		if s.cfg.TunnelTLS {
+			tlsConn := tls.Client(conn, rawTunnelTLSClientConfig(s.cfg))
+			if err := tlsConn.HandshakeContext(ctx); err != nil {
+				return nil, closeAfterError(conn, err)
+			}
+			conn = tlsConn
+		}
 		if s.cfg.TunnelSecurity == tunnelSecurityReality {
 			realityConn, err := dialReality(ctx, conn, s.cfg)
 			if err != nil {
@@ -563,4 +570,49 @@ func tunnelTLSClientConfig(cfg config) *tls.Config {
 		InsecureSkipVerify: cfg.TunnelTLSInsecure,
 	}
 	return tlsConfig
+}
+
+func rawTunnelTLSClientConfig(cfg config) *tls.Config {
+	tlsConfig := tunnelTLSClientConfig(cfg)
+	if tlsConfig.ServerName == "" {
+		tlsConfig.ServerName = serverNameFromAddr(cfg.ServerAddr)
+	}
+	return tlsConfig
+}
+
+func rawTunnelTLSServerConfig(cfg config) (*tls.Config, error) {
+	certFile := strings.TrimSpace(cfg.TunnelTLSCert)
+	keyFile := strings.TrimSpace(cfg.TunnelTLSKey)
+	if certFile == "" && keyFile == "" {
+		return nil, nil
+	}
+	if certFile == "" || keyFile == "" {
+		return nil, errors.New("raw TLS tunnel server requires both --tls-cert and --tls-key")
+	}
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{cert},
+	}, nil
+}
+
+func serverNameFromAddr(addr string) string {
+	trimmed := strings.TrimSpace(addr)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.Contains(trimmed, "://") {
+		parsed, err := url.Parse(trimmed)
+		if err == nil {
+			trimmed = parsed.Host
+		}
+	}
+	host, _, err := net.SplitHostPort(trimmed)
+	if err == nil {
+		return trimHostBrackets(host)
+	}
+	return trimHostBrackets(trimmed)
 }

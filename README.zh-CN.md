@@ -167,6 +167,20 @@ bin/proxy server --listen 0.0.0.0:9443 --tunnel-protocol trojan --token change-m
 bin/proxy client --server-addr 203.0.113.10:9443 --tunnel-protocol trojan --token change-me
 ```
 
+使用兼容 Xray 的 VMess over raw TCP：
+
+```sh
+bin/proxy server --listen 0.0.0.0:9443 --tunnel-protocol vmess --transport raw --token 00000000-0000-4000-8000-000000000000
+bin/proxy client --server-addr 203.0.113.10:9443 --tunnel-protocol vmess --transport raw --token 00000000-0000-4000-8000-000000000000
+```
+
+使用兼容 Xray 常见配置的 Trojan over raw TLS：
+
+```sh
+bin/proxy server --listen 0.0.0.0:443 --tunnel-protocol trojan --transport raw --tls-cert server.crt --tls-key server.key --token change-me
+bin/proxy client --server-addr proxy.example.com:443 --tunnel-protocol trojan --transport raw --tls --tls-server-name proxy.example.com --token change-me
+```
+
 使用 HTTP/2：
 
 ```sh
@@ -233,12 +247,14 @@ bin/proxy client --server-addr proxy.example.com:9443 --transport h3 --tunnel-pa
 - `h2`：HTTP/2 双向 request/response 流。服务端不配置证书时使用 h2c；配置 `--tls-cert` 和 `--tls-key` 后提供 TLS HTTP/2。
 - `h3`：基于 QUIC 的 HTTP/3。服务端必须配置 `--tls-cert` 和 `--tls-key`，客户端固定使用 `https`。
 
+raw transport 也可以运行在 TLS 内：客户端使用 `--tls`，服务端配置 `--tls-cert` 和 `--tls-key`。这是兼容 Trojan 的推荐 transport/security 组合。
+
 隧道协议可通过 `--tunnel-protocol` 或 `config.json` 里的 `tunnel_protocol` 选择：
 
 - `custom`：本项目的轻量协议。默认值，支持 TCP、SOCKS5 UDP relay 和隧道多路复用。
 - `vless`：VLESS 风格 TCP 请求封装。`--token` 必须是 UUID。
-- `trojan`：Trojan TCP 请求封装。`--token` 作为 Trojan password 使用。
-- `vmess`：项目内兼容的轻量 VMess 模式，使用 UUID 认证和明文 TCP 封装。它用于本项目 client/server 配对，不等同于完整 Xray/v2ray VMess 互通。
+- `trojan`：标准 Trojan TCP 请求封装。`--token` 作为 Trojan password 使用。兼容 Xray 常见 Trojan 部署时，请使用 raw transport，客户端加 `--tls`，服务端配置 `--tls-cert` 和 `--tls-key`。
+- `vmess`：兼容 Xray 的 VMess AEAD TCP 请求封装。`--token` 必须是 UUID，并作为 VMess user id 使用。当前兼容目标是 `security: "none"`、AEAD header，以及 Xray 默认的 chunk stream/chunk masking 选项；暂不支持 AES-GCM、ChaCha20-Poly1305、VMess UDP、mux command、global padding 和 authenticated length。
 
 作为客户端兼容 Xray REALITY/Vision 时，请使用 `proxy client`，并设置 `--transport raw`、`--tunnel-protocol vless`、`--tunnel-security reality` 和 `--flow xtls-rprx-vision`。REALITY 需要 `--reality-server-name`、`--reality-public-key` 和 UUID 格式的 `--token`；`--reality-fingerprint` 默认是 `chrome`。
 
@@ -388,8 +404,8 @@ socks5-udp/localhost:53002 -> 10.207.20.78:1080 -> 8.8.8.8:53 ok
 --flow <string>             VLESS flow，例如 xtls-rprx-vision
 --transport <string>        隧道承载层：raw、ws、h2 或 h3 [默认: raw]
 --tunnel-path <string>      HTTP/WebSocket 隧道路由路径 [默认: /proxy]
---tls-cert <string>         h2/h3 服务端 TLS 证书文件
---tls-key <string>          h2/h3 服务端 TLS 私钥文件
+--tls-cert <string>         raw/ws/h2/h3 服务端 TLS 证书文件
+--tls-key <string>          raw/ws/h2/h3 服务端 TLS 私钥文件
 --reality-private-key <string> REALITY privateKey
 --reality-server-names <string> 逗号分隔的 REALITY serverNames
 --reality-short-ids <string>   逗号分隔的 REALITY shortIds 十六进制值
@@ -421,6 +437,10 @@ make run MODE=server LISTEN=0.0.0.0:9443 TOKEN=change-me
 make run MODE=client SERVER_ADDR=203.0.113.10:9443 TOKEN=change-me
 make run MODE=server LISTEN=0.0.0.0:9443 TUNNEL_PROTOCOL=vless TOKEN=00000000-0000-4000-8000-000000000000
 make run MODE=client SERVER_ADDR=203.0.113.10:9443 TUNNEL_PROTOCOL=vless TOKEN=00000000-0000-4000-8000-000000000000
+make run MODE=server LISTEN=0.0.0.0:9443 TUNNEL_PROTOCOL=vmess TRANSPORT=raw TOKEN=00000000-0000-4000-8000-000000000000
+make run MODE=client SERVER_ADDR=203.0.113.10:9443 TUNNEL_PROTOCOL=vmess TRANSPORT=raw TOKEN=00000000-0000-4000-8000-000000000000
+make run MODE=server LISTEN=0.0.0.0:443 TUNNEL_PROTOCOL=trojan TRANSPORT=raw TOKEN=change-me TLS_CERT=server.crt TLS_KEY=server.key
+make run MODE=client SERVER_ADDR=proxy.example.com:443 TUNNEL_PROTOCOL=trojan TRANSPORT=raw TOKEN=change-me TLS=1 TLS_SERVER_NAME=proxy.example.com
 make run MODE=server LISTEN=0.0.0.0:443 TUNNEL_PROTOCOL=vless TRANSPORT=raw TUNNEL_SECURITY=reality FLOW=xtls-rprx-vision TOKEN=00000000-0000-4000-8000-000000000000 REALITY_PRIVATE_KEY=REALITY_PRIVATE_KEY REALITY_SERVER_NAMES=example.com REALITY_DEST=example.com:443
 make run MODE=client SERVER_ADDR=proxy.example.com:443 TUNNEL_PROTOCOL=vless TRANSPORT=raw TUNNEL_SECURITY=reality FLOW=xtls-rprx-vision TOKEN=00000000-0000-4000-8000-000000000000 REALITY_SERVER_NAME=example.com REALITY_PUBLIC_KEY=REALITY_PUBLIC_KEY REALITY_FINGERPRINT=chrome
 make run MODE=server LISTEN=127.0.0.1:9443 TRANSPORT=ws TUNNEL_PATH=/proxy TOKEN=change-me

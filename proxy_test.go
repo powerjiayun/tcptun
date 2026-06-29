@@ -4,10 +4,17 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/binary"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -1878,6 +1885,98 @@ func TestRunProxyClientServerProtocolTunnel(t *testing.T) {
 	}
 }
 
+func TestRunProxyClientServerTrojanRawTLS(t *testing.T) {
+	direct, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := direct.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("close direct listener: %v", err)
+		}
+	})
+	directErr := make(chan error, 1)
+	go echoOnce(direct, directErr)
+
+	certFile, keyFile := writeTestCertificateFiles(t)
+	serverAddr := reserveTCPAddr(t)
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- runProxy(serverCtx, config{
+			Mode:            proxyModeServer,
+			ListenAddr:      serverAddr,
+			Token:           "secret",
+			TunnelProtocol:  tunnelProtocolTrojan,
+			TunnelTransport: tunnelTransportRaw,
+			TunnelTLSCert:   certFile,
+			TunnelTLSKey:    keyFile,
+			DialTimeout:     time.Second,
+			BufferSize:      4096,
+		}, io.Discard)
+	}()
+	waitForTCP(t, serverAddr)
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	configBody := []byte(`{
+		"force_upstream": {
+			"ip_cidrs": ["127.0.0.1/32"]
+		}
+	}`)
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	clientAddr := reserveTCPAddr(t)
+	clientCtx, clientCancel := context.WithCancel(context.Background())
+	defer clientCancel()
+	clientErr := make(chan error, 1)
+	go func() {
+		clientErr <- runProxy(clientCtx, config{
+			Mode:                proxyModeClient,
+			ListenAddr:          clientAddr,
+			ServerAddr:          serverAddr,
+			Token:               "secret",
+			TunnelProtocol:      tunnelProtocolTrojan,
+			TunnelTransport:     tunnelTransportRaw,
+			TunnelTLS:           true,
+			TunnelTLSInsecure:   true,
+			TunnelTLSServerName: "localhost",
+			ConfigPath:          configPath,
+			DialTimeout:         time.Second,
+			BufferSize:          4096,
+		}, io.Discard)
+	}()
+	waitForTCP(t, clientAddr)
+
+	client := dialHTTPConnect(t, clientAddr, direct.Addr().String())
+	if _, err := client.Write([]byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 2)
+	if _, err := io.ReadFull(client, reply); err != nil {
+		t.Fatal(err)
+	}
+	if string(reply) != "OK" {
+		t.Fatalf("reply = %q, want OK", reply)
+	}
+	if err := client.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-directErr:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("direct target did not receive tunneled TCP")
+	}
+
+	stopProxy(t, clientCancel, clientErr)
+	stopProxy(t, serverCancel, serverErr)
+}
+
 func TestRunProxyClientServerSOCKS5UDPTunnel(t *testing.T) {
 	for _, transport := range []string{tunnelTransportRaw, tunnelTransportWS, tunnelTransportH2} {
 		t.Run(transport, func(t *testing.T) {
@@ -2190,4 +2289,46 @@ func TestParseRealityShortID(t *testing.T) {
 	if _, err := parseRealityShortID("abc"); err == nil {
 		t.Fatal("parseRealityShortID accepted odd-length hex")
 	}
+}
+
+func writeTestCertificateFiles(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "server.crt")
+	keyPath := filepath.Join(dir, "server.key")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return certPath, keyPath
 }

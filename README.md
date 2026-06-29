@@ -167,6 +167,20 @@ bin/proxy server --listen 0.0.0.0:9443 --tunnel-protocol trojan --token change-m
 bin/proxy client --server-addr 203.0.113.10:9443 --tunnel-protocol trojan --token change-me
 ```
 
+Run Xray-compatible VMess over raw TCP:
+
+```sh
+bin/proxy server --listen 0.0.0.0:9443 --tunnel-protocol vmess --transport raw --token 00000000-0000-4000-8000-000000000000
+bin/proxy client --server-addr 203.0.113.10:9443 --tunnel-protocol vmess --transport raw --token 00000000-0000-4000-8000-000000000000
+```
+
+Run Xray-compatible Trojan over raw TLS:
+
+```sh
+bin/proxy server --listen 0.0.0.0:443 --tunnel-protocol trojan --transport raw --tls-cert server.crt --tls-key server.key --token change-me
+bin/proxy client --server-addr proxy.example.com:443 --tunnel-protocol trojan --transport raw --tls --tls-server-name proxy.example.com --token change-me
+```
+
 Run over HTTP/2:
 
 ```sh
@@ -233,12 +247,14 @@ The tunnel transport is selected with `--transport` or `tunnel_transport` in `co
 - `h2`: HTTP/2 bidirectional request/response stream. Without server certificates it runs as h2c; with `--tls-cert` and `--tls-key` it serves TLS HTTP/2.
 - `h3`: HTTP/3 over QUIC. The server requires `--tls-cert` and `--tls-key`, and the client always uses `https`.
 
+Raw transport can also run inside TLS: use client `--tls` and server `--tls-cert` plus `--tls-key`. This is the recommended transport/security combination for Trojan compatibility.
+
 The tunnel protocol is selected with `--tunnel-protocol` or `tunnel_protocol` in `config.json`:
 
 - `custom`: this project's compact protocol. This is the default, supports TCP, SOCKS5 UDP relay, and tunnel multiplexing.
 - `vless`: VLESS-style TCP request framing. `--token` must be a UUID.
-- `trojan`: Trojan TCP request framing. `--token` is used as the Trojan password.
-- `vmess`: a lightweight project-compatible VMess mode using UUID authentication and clear TCP framing. It is intended for this project's client/server pairing; it is not full Xray/v2ray VMess interoperability.
+- `trojan`: standard Trojan TCP request framing. `--token` is used as the Trojan password. For common Xray Trojan deployments, use raw transport with client `--tls` and server `--tls-cert` plus `--tls-key`.
+- `vmess`: Xray-compatible VMess AEAD TCP request framing. `--token` must be a UUID and is used as the VMess user id. The compatibility target is `security: "none"` with AEAD header and Xray's default chunk stream/chunk masking options; AES-GCM, ChaCha20-Poly1305, VMess UDP, mux command, global padding, and authenticated length are not supported.
 
 For Xray REALITY/Vision client compatibility, use `proxy client` with `--transport raw`, `--tunnel-protocol vless`, `--tunnel-security reality`, and `--flow xtls-rprx-vision`. REALITY requires `--reality-server-name`, `--reality-public-key`, and a UUID `--token`; `--reality-fingerprint` defaults to `chrome`.
 
@@ -388,8 +404,8 @@ socks5-udp/localhost:53002 -> 10.207.20.78:1080 -> 8.8.8.8:53 ok
 --flow <string>             VLESS flow, for example xtls-rprx-vision
 --transport <string>        tunnel transport: raw, ws, h2, or h3 [default: raw]
 --tunnel-path <string>      HTTP/WebSocket tunnel path [default: /proxy]
---tls-cert <string>         TLS certificate file for h2/h3 server
---tls-key <string>          TLS private key file for h2/h3 server
+--tls-cert <string>         TLS certificate file for raw/ws/h2/h3 server
+--tls-key <string>          TLS private key file for raw/ws/h2/h3 server
 --reality-private-key <string> REALITY privateKey
 --reality-server-names <string> comma-separated REALITY serverNames
 --reality-short-ids <string>   comma-separated REALITY shortIds in hex
@@ -421,6 +437,10 @@ make run MODE=server LISTEN=0.0.0.0:9443 TOKEN=change-me
 make run MODE=client SERVER_ADDR=203.0.113.10:9443 TOKEN=change-me
 make run MODE=server LISTEN=0.0.0.0:9443 TUNNEL_PROTOCOL=vless TOKEN=00000000-0000-4000-8000-000000000000
 make run MODE=client SERVER_ADDR=203.0.113.10:9443 TUNNEL_PROTOCOL=vless TOKEN=00000000-0000-4000-8000-000000000000
+make run MODE=server LISTEN=0.0.0.0:9443 TUNNEL_PROTOCOL=vmess TRANSPORT=raw TOKEN=00000000-0000-4000-8000-000000000000
+make run MODE=client SERVER_ADDR=203.0.113.10:9443 TUNNEL_PROTOCOL=vmess TRANSPORT=raw TOKEN=00000000-0000-4000-8000-000000000000
+make run MODE=server LISTEN=0.0.0.0:443 TUNNEL_PROTOCOL=trojan TRANSPORT=raw TOKEN=change-me TLS_CERT=server.crt TLS_KEY=server.key
+make run MODE=client SERVER_ADDR=proxy.example.com:443 TUNNEL_PROTOCOL=trojan TRANSPORT=raw TOKEN=change-me TLS=1 TLS_SERVER_NAME=proxy.example.com
 make run MODE=server LISTEN=0.0.0.0:443 TUNNEL_PROTOCOL=vless TRANSPORT=raw TUNNEL_SECURITY=reality FLOW=xtls-rprx-vision TOKEN=00000000-0000-4000-8000-000000000000 REALITY_PRIVATE_KEY=REALITY_PRIVATE_KEY REALITY_SERVER_NAMES=example.com REALITY_DEST=example.com:443
 make run MODE=client SERVER_ADDR=proxy.example.com:443 TUNNEL_PROTOCOL=vless TRANSPORT=raw TUNNEL_SECURITY=reality FLOW=xtls-rprx-vision TOKEN=00000000-0000-4000-8000-000000000000 REALITY_SERVER_NAME=example.com REALITY_PUBLIC_KEY=REALITY_PUBLIC_KEY REALITY_FINGERPRINT=chrome
 make run MODE=server LISTEN=127.0.0.1:9443 TRANSPORT=ws TUNNEL_PATH=/proxy TOKEN=change-me

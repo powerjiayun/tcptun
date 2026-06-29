@@ -37,7 +37,7 @@ func buildClientCommand(cfg *proxypkg.Config) *cmd.Command {
 			f.StringVar(&securityFlag, "tunnel-security", securityFlag, "tunnel security: none or reality [default: none]", "")
 			f.StringVar(&flowFlag, "flow", flowFlag, "VLESS flow, for example xtls-rprx-vision", "")
 			f.StringVar(&pathFlag, "tunnel-path", pathFlag, "HTTP/WebSocket tunnel path", "")
-			f.BoolVar(&cfg.TunnelTLS, "tls", cfg.TunnelTLS, "use TLS for ws/h2 transport", "")
+			f.BoolVar(&cfg.TunnelTLS, "tls", cfg.TunnelTLS, "use TLS for raw/ws/h2 transport", "")
 			f.StringVar(&tlsServerNameFlag, "tls-server-name", tlsServerNameFlag, "TLS server name override", "")
 			f.BoolVar(&cfg.TunnelTLSInsecure, "tls-insecure", cfg.TunnelTLSInsecure, "skip TLS certificate verification", "")
 			f.StringVar(&cfg.RealityServerName, "reality-server-name", cfg.RealityServerName, "REALITY serverName", "")
