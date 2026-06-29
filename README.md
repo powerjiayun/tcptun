@@ -2,15 +2,16 @@
 
 Local mixed proxy forwarder written in Go.
 
-This tool opens a local mixed proxy port and forwards every accepted TCP connection unchanged to a mixed proxy port on the gateway. It is designed for low overhead: protocol bytes are not parsed or rewritten on the hot path, and connection forwarding uses pooled copy buffers.
+This tool opens a local mixed proxy port and forwards upstream traffic through the gateway using SOCKS5. It is designed for low overhead: connection forwarding uses pooled copy buffers, while HTTP and SOCKS5 requests are parsed only enough to choose direct or SOCKS5 upstream routing.
 
 English | [简体中文](README.zh-CN.md)
 
 ## Features
 
 - Listens locally on `127.0.0.1:1080` by default.
-- Forwards to the gateway mixed proxy port `1080` by default.
-- Supports mixed proxy traffic such as SOCKS5, HTTP proxy, and HTTP CONNECT when the upstream gateway port supports them.
+- Forwards to the gateway SOCKS5-compatible port `1080` by default.
+- Accepts mixed local proxy traffic such as SOCKS5, HTTP proxy, and HTTP CONNECT.
+- Converts all upstream TCP and UDP traffic with a parsed target to SOCKS5.
 - Supports SOCKS5 UDP ASSOCIATE for UDP relay traffic.
 - Prints compact terminal access logs; direct connections omit the proxy field.
 - Auto-detects the default gateway IP.
@@ -71,7 +72,7 @@ Use a known gateway IP:
 bin/proxy --gateway-ip 192.168.1.1
 ```
 
-Use a different gateway mixed port:
+Use a different gateway SOCKS5 port:
 
 ```sh
 bin/proxy --gateway-port 7890
@@ -90,7 +91,7 @@ When `--gateway-ip` is not set, startup works like this:
 1. Detect the system default gateway IP.
 2. Try to connect to `<gateway-ip>:<gateway-port>`.
 3. If that connection fails, scan local IPv4 networks for a host with `<gateway-port>` open.
-4. Use the first reachable host as the upstream mixed proxy.
+4. Use the first reachable host as the upstream SOCKS5 proxy.
 
 Manual `--gateway-ip` disables scanning and uses the provided IP directly.
 
@@ -150,7 +151,7 @@ socks5-udp/localhost:53002 -> 10.207.20.78:1080 -> 8.8.8.8:53 ok
 -c, --config <string>       JSON route config path; empty disables config loading [default: "config.json"]
 --dial-timeout <duration>   upstream dial timeout [default: 5s]
 --gateway-ip <string>       gateway IP; empty means auto-detect
--p, --gateway-port <int>    gateway mixed proxy port [default: 1080]
+-p, --gateway-port <int>    gateway SOCKS5-compatible proxy port [default: 1080]
 -l, --listen <string>       local listen address [default: "127.0.0.1:1080"]
 --refresh-interval <duration> interval for checking local IPv4 changes; 0 disables refresh [default: 5s]
 --scan-timeout <duration>   per-IP timeout when scanning local IPv4 networks [default: 250ms]

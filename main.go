@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -65,9 +64,9 @@ func buildApp() *cmd.App {
 	app.Short = "Local mixed proxy forwarder"
 	app.Root = &cmd.Command{
 		UsageLine: "proxy [flags]",
-		Short:     "forward local mixed proxy traffic to the gateway mixed port",
+		Short:     "forward local mixed proxy traffic through the gateway SOCKS5 port",
 		Long: "Starts a local TCP listener for mixed proxy clients and forwards each connection " +
-			"unchanged to the default gateway's mixed proxy port.",
+			"through the default gateway's SOCKS5-compatible proxy port.",
 		Examples: []string{
 			"proxy",
 			"proxy --listen 127.0.0.1:1081 --gateway-port 1080",
@@ -76,7 +75,7 @@ func buildApp() *cmd.App {
 		SetFlags: func(f *cmd.FlagSet) {
 			f.StringVar(&cfg.ListenAddr, "listen", cfg.ListenAddr, "local listen address", "l")
 			f.StringVar(&cfg.GatewayIP, "gateway-ip", cfg.GatewayIP, "gateway IP; empty means auto-detect", "")
-			f.IntVar(&cfg.GatewayPort, "gateway-port", cfg.GatewayPort, "gateway mixed proxy port", "p")
+			f.IntVar(&cfg.GatewayPort, "gateway-port", cfg.GatewayPort, "gateway SOCKS5-compatible proxy port", "p")
 			f.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath, "JSON route config path; empty disables config loading", "c")
 			f.DurationVar(&cfg.DialTimeout, "dial-timeout", cfg.DialTimeout, "upstream dial timeout", "")
 			f.DurationVar(&cfg.RefreshInterval, "refresh-interval", cfg.RefreshInterval, "interval for checking local IPv4 changes; 0 disables refresh", "")
@@ -470,44 +469,6 @@ func (s *proxyServer) connectUpstreamRaw(ctx context.Context) (net.Conn, string,
 		return nil, target, fmt.Errorf("tune upstream tcp: %w", err)
 	}
 	return upstream, target, nil
-}
-
-func (s *proxyServer) proxyViaUpstream(ctx context.Context, client net.Conn, clientReader io.Reader, initial []byte, accessSource string, accessTarget string) error {
-	upstream, target, err := s.connectUpstreamRaw(ctx)
-	if err != nil {
-		if s.cfg.Verbose {
-			if logErr := logf(s.log, "dial %s failed for %s: %v\n", target, client.RemoteAddr(), err); logErr != nil {
-				return fmt.Errorf("write dial failure log: %w", logErr)
-			}
-		}
-		if logErr := accessLog(s.log, accessSource, target, accessTarget, err.Error()); logErr != nil {
-			return logErr
-		}
-		return nil
-	}
-	defer func() {
-		if err := upstream.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			if logErr := logf(s.log, "close upstream %s: %v\n", target, err); logErr != nil {
-				return
-			}
-		}
-	}()
-	if s.cfg.Verbose {
-		if err := logf(s.log, "proxy %s -> %s\n", client.RemoteAddr(), target); err != nil {
-			return err
-		}
-	}
-	var src io.Reader = clientReader
-	if len(initial) > 0 {
-		src = io.MultiReader(bytes.NewReader(initial), clientReader)
-	}
-	if err := s.bridge(upstream, client, src); err != nil {
-		if logErr := accessLog(s.log, accessSource, target, accessTarget, err.Error()); logErr != nil {
-			return errors.Join(err, logErr)
-		}
-		return err
-	}
-	return accessLog(s.log, accessSource, target, accessTarget, "ok")
 }
 
 func (s *proxyServer) bridge(upstream net.Conn, client net.Conn, clientReader io.Reader) error {

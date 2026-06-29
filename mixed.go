@@ -73,7 +73,7 @@ func (s *proxyServer) routeMixed(ctx context.Context, client net.Conn, reader *b
 		}
 	}
 
-	return s.proxyViaUpstream(ctx, client, reader, nil, accessSource("mixed", client.RemoteAddr()), "unknown")
+	return accessLog(s.log, accessSource("mixed", client.RemoteAddr()), "", "unknown", "unsupported mixed traffic")
 }
 
 func (s *proxyServer) handleSocks5(ctx context.Context, client net.Conn, reader *bufio.Reader) error {
@@ -232,7 +232,7 @@ func (s *proxyServer) handleHTTPProxy(ctx context.Context, client net.Conn, read
 		}
 	}
 
-	return s.proxyViaUpstream(ctx, client, reader, req.raw, accessSource("http", client.RemoteAddr()), directTarget)
+	return s.handleHTTPUpstreamSocks5(ctx, client, reader, req, targetHost, port, directTarget)
 }
 
 func (s *proxyServer) connectDirectTCP(ctx context.Context, cacheKey string, host string, target string) (net.Conn, bool, error) {
@@ -257,6 +257,76 @@ func (s *proxyServer) connectDirectTCP(ctx context.Context, cacheKey string, hos
 
 func directCacheKey(network string, host string, port string) string {
 	return network + ":" + strings.ToLower(trimHostBrackets(host)) + ":" + port
+}
+
+func (s *proxyServer) handleHTTPUpstreamSocks5(ctx context.Context, client net.Conn, reader *bufio.Reader, req *httpProxyRequest, host string, port string, target string) error {
+	socksReq, err := socksRequestFromHostPort(host, port)
+	if err != nil {
+		if logErr := accessLog(s.log, accessSource("http", client.RemoteAddr()), s.resolver.target(), target, err.Error()); logErr != nil {
+			return errors.Join(err, logErr)
+		}
+		return err
+	}
+
+	upstream, upstreamTarget, err := s.connectViaUpstreamSocks5(ctx, socksReq)
+	if err != nil {
+		if logErr := accessLog(s.log, accessSource("http", client.RemoteAddr()), upstreamTarget, target, err.Error()); logErr != nil {
+			return errors.Join(err, logErr)
+		}
+		if writeErr := writeHTTPBadGateway(client); writeErr != nil {
+			return errors.Join(err, writeErr)
+		}
+		return nil
+	}
+	defer closeConnWithLog(upstream, s.log, "upstream http "+upstreamTarget)
+
+	if strings.EqualFold(req.method, "CONNECT") {
+		if err := writeAll(client, []byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+			if logErr := accessLog(s.log, accessSource("http", client.RemoteAddr()), upstreamTarget, target, err.Error()); logErr != nil {
+				return errors.Join(err, logErr)
+			}
+			return err
+		}
+		if err := s.bridge(upstream, client, reader); err != nil {
+			if logErr := accessLog(s.log, accessSource("http", client.RemoteAddr()), upstreamTarget, target, err.Error()); logErr != nil {
+				return errors.Join(err, logErr)
+			}
+			return err
+		}
+		return accessLog(s.log, accessSource("http", client.RemoteAddr()), upstreamTarget, target, "ok")
+	}
+
+	rewritten, err := rewriteHTTPProxyRequest(req)
+	if err != nil {
+		if logErr := accessLog(s.log, accessSource("http", client.RemoteAddr()), upstreamTarget, target, err.Error()); logErr != nil {
+			return errors.Join(err, logErr)
+		}
+		return err
+	}
+	if err := writeAll(upstream, rewritten); err != nil {
+		if logErr := accessLog(s.log, accessSource("http", client.RemoteAddr()), upstreamTarget, target, err.Error()); logErr != nil {
+			return errors.Join(err, logErr)
+		}
+		return err
+	}
+	if err := s.bridge(upstream, client, reader); err != nil {
+		if logErr := accessLog(s.log, accessSource("http", client.RemoteAddr()), upstreamTarget, target, err.Error()); logErr != nil {
+			return errors.Join(err, logErr)
+		}
+		return err
+	}
+	return accessLog(s.log, accessSource("http", client.RemoteAddr()), upstreamTarget, target, "ok")
+}
+
+func socksRequestFromHostPort(host string, port string) (socksRequest, error) {
+	portNumber, err := strconv.Atoi(port)
+	if err != nil {
+		return socksRequest{}, err
+	}
+	if portNumber <= 0 || portNumber > 65535 {
+		return socksRequest{}, fmt.Errorf("invalid target port %s", port)
+	}
+	return socksRequest{cmd: socksCmdConnect, host: host, port: uint16(portNumber)}, nil
 }
 
 func (s *proxyServer) connectViaUpstreamSocks5(ctx context.Context, req socksRequest) (net.Conn, string, error) {

@@ -2,15 +2,16 @@
 
 本地 mixed 代理转发程序，使用 Go 编写。
 
-这个工具会在本机打开一个 mixed 代理端口，并把接收到的每条 TCP 连接原样转发到网关上的 mixed 代理端口。它偏性能优先设计：转发热路径不解析、不改写协议数据，并使用复用缓冲区进行连接拷贝。
+这个工具会在本机打开一个 mixed 代理端口，并把需要走上游的流量统一通过 SOCKS5 转发到网关。它偏性能优先设计：连接转发使用复用缓冲区，HTTP 和 SOCKS5 请求只解析到足够完成直连/上游路由选择。
 
 [English](README.md) | 简体中文
 
 ## 功能
 
 - 默认监听本机 `127.0.0.1:1080`。
-- 默认转发到网关 mixed 代理端口 `1080`。
-- 当网关端口支持 mixed 协议时，可承载 SOCKS5、HTTP 代理、HTTP CONNECT 等流量。
+- 默认转发到网关兼容 SOCKS5 的端口 `1080`。
+- 本地支持 mixed 代理流量，包括 SOCKS5、HTTP 代理、HTTP CONNECT。
+- 所有已解析出目标的 TCP 和 UDP 上游流量都会转换成 SOCKS5。
 - 支持 SOCKS5 UDP ASSOCIATE，可转发 UDP 流量。
 - 在终端输出紧凑访问日志；直连日志会省略代理字段。
 - 自动发现默认网关 IP。
@@ -71,7 +72,7 @@ bin/proxy --listen 127.0.0.1:1081
 bin/proxy --gateway-ip 192.168.1.1
 ```
 
-指定网关 mixed 端口：
+指定网关 SOCKS5 端口：
 
 ```sh
 bin/proxy --gateway-port 7890
@@ -90,7 +91,7 @@ bin/proxy --config ./config.json
 1. 自动发现系统默认网关 IP。
 2. 尝试连接 `<网关IP>:<gateway-port>`。
 3. 如果连接失败，扫描本机所在 IPv4 网段，寻找打开了 `<gateway-port>` 的主机。
-4. 使用第一个可连通的地址作为上游 mixed 代理。
+4. 使用第一个可连通的地址作为上游 SOCKS5 代理。
 
 手动设置 `--gateway-ip` 时，不会扫描网段，会直接使用该 IP。
 
@@ -150,7 +151,7 @@ socks5-udp/localhost:53002 -> 10.207.20.78:1080 -> 8.8.8.8:53 ok
 -c, --config <string>       JSON 路由配置文件路径；为空表示禁用配置加载 [默认: "config.json"]
 --dial-timeout <duration>   连接上游超时时间 [默认: 5s]
 --gateway-ip <string>       网关 IP；为空表示自动发现
--p, --gateway-port <int>    网关 mixed 代理端口 [默认: 1080]
+-p, --gateway-port <int>    网关兼容 SOCKS5 的代理端口 [默认: 1080]
 -l, --listen <string>       本机监听地址 [默认: "127.0.0.1:1080"]
 --refresh-interval <duration> 检查本机 IPv4 变化的间隔；0 表示禁用刷新 [默认: 5s]
 --scan-timeout <duration>   扫描 IPv4 网段时每个 IP 的探测超时 [默认: 250ms]

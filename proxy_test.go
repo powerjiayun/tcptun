@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +17,7 @@ import (
 	"time"
 )
 
-func TestRunProxyForwardsUnknownTrafficUnchanged(t *testing.T) {
+func TestRunProxyRejectsUnknownTrafficWithoutUpstreamForward(t *testing.T) {
 	upstream, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -27,38 +28,8 @@ func TestRunProxyForwardsUnknownTrafficUnchanged(t *testing.T) {
 		}
 	})
 
-	received := make(chan []byte, 1)
-	serverErr := make(chan error, 1)
-	go func() {
-		for {
-			conn, err := upstream.Accept()
-			if err != nil {
-				if !errors.Is(err, net.ErrClosed) {
-					serverErr <- err
-				}
-				return
-			}
-			buf := make([]byte, 64)
-			n, err := conn.Read(buf)
-			if n == 0 {
-				if err != nil && !errors.Is(err, io.EOF) {
-					serverErr <- err
-				}
-				if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-					serverErr <- err
-				}
-				continue
-			}
-			received <- append([]byte(nil), buf[:n]...)
-			if _, err := conn.Write([]byte("ok")); err != nil {
-				serverErr <- err
-			}
-			if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-				serverErr <- err
-			}
-			return
-		}
-	}()
+	upstreamHit := make(chan struct{}, 1)
+	go acceptSignal(upstream, upstreamHit)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -109,20 +80,13 @@ func TestRunProxyForwardsUnknownTrafficUnchanged(t *testing.T) {
 	}
 
 	reply := make([]byte, 2)
-	if _, err := io.ReadFull(client, reply); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(reply, []byte("ok")) {
-		t.Fatalf("reply = %q, want ok", reply)
-	}
-
-	got := <-received
-	if !bytes.Equal(got, payload) {
-		t.Fatalf("upstream received %v, want %v", got, payload)
+	_, err = io.ReadFull(client, reply)
+	if err == nil {
+		t.Fatalf("unknown traffic read succeeded with %q, want close", reply)
 	}
 	select {
-	case err := <-serverErr:
-		t.Fatal(err)
+	case <-upstreamHit:
+		t.Fatal("unknown traffic was forwarded to upstream")
 	default:
 	}
 
@@ -262,9 +226,9 @@ func TestRunProxyCachesDirectFailureAndSkipsRetry(t *testing.T) {
 			t.Errorf("close upstream listener: %v", err)
 		}
 	})
-	upstreamLines := make(chan string, 2)
+	upstreamTargets := make(chan string, 2)
 	upstreamErr := make(chan error, 1)
-	go httpConnectUpstream(upstream, upstreamLines, upstreamErr, 2)
+	go socks5ConnectUpstream(upstream, upstreamTargets, upstreamErr, 2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -295,8 +259,8 @@ func TestRunProxyCachesDirectFailureAndSkipsRetry(t *testing.T) {
 	if err := first.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		t.Fatal(err)
 	}
-	if line := <-upstreamLines; !strings.Contains(line, targetAddr) {
-		t.Fatalf("first upstream line = %q, want target %s", line, targetAddr)
+	if target := <-upstreamTargets; target != targetAddr {
+		t.Fatalf("first upstream target = %q, want %s", target, targetAddr)
 	}
 
 	direct, err := net.Listen("tcp", targetAddr)
@@ -315,8 +279,8 @@ func TestRunProxyCachesDirectFailureAndSkipsRetry(t *testing.T) {
 	if err := second.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		t.Fatal(err)
 	}
-	if line := <-upstreamLines; !strings.Contains(line, targetAddr) {
-		t.Fatalf("second upstream line = %q, want target %s", line, targetAddr)
+	if target := <-upstreamTargets; target != targetAddr {
+		t.Fatalf("second upstream target = %q, want %s", target, targetAddr)
 	}
 	select {
 	case <-directHit:
@@ -364,9 +328,9 @@ func TestRunProxyForceUpstreamCIDRSkipsDirect(t *testing.T) {
 			t.Errorf("close upstream listener: %v", err)
 		}
 	})
-	upstreamLines := make(chan string, 1)
+	upstreamTargets := make(chan string, 1)
 	upstreamErr := make(chan error, 1)
-	go httpConnectUpstream(upstream, upstreamLines, upstreamErr, 1)
+	go socks5ConnectUpstream(upstream, upstreamTargets, upstreamErr, 1)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	configBody := []byte(`{"force_upstream":{"ip_cidrs":["127.0.0.1/32"]}}`)
@@ -404,8 +368,8 @@ func TestRunProxyForceUpstreamCIDRSkipsDirect(t *testing.T) {
 	if err := client.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		t.Fatal(err)
 	}
-	if line := <-upstreamLines; !strings.Contains(line, direct.Addr().String()) {
-		t.Fatalf("upstream line = %q, want target %s", line, direct.Addr())
+	if target := <-upstreamTargets; target != direct.Addr().String() {
+		t.Fatalf("upstream target = %q, want %s", target, direct.Addr())
 	}
 	select {
 	case <-directHit:
@@ -696,8 +660,8 @@ func dialHTTPConnect(t *testing.T, proxyAddr string, targetAddr string) net.Conn
 	return client
 }
 
-func httpConnectUpstream(listener net.Listener, lines chan<- string, errCh chan<- error, count int) {
-	defer close(lines)
+func socks5ConnectUpstream(listener net.Listener, targets chan<- string, errCh chan<- error, count int) {
+	defer close(targets)
 	for i := 0; i < count; i++ {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -707,23 +671,13 @@ func httpConnectUpstream(listener net.Listener, lines chan<- string, errCh chan<
 			return
 		}
 		reader := bufio.NewReader(conn)
-		line, err := reader.ReadString('\n')
+		target, err := readSocks5ConnectTarget(reader, conn)
 		if err != nil {
-			errCh <- errors.Join(err, conn.Close())
+			errCh <- err
 			return
 		}
-		lines <- line
-		for {
-			header, err := reader.ReadString('\n')
-			if err != nil {
-				errCh <- errors.Join(err, conn.Close())
-				return
-			}
-			if header == "\r\n" || header == "\n" {
-				break
-			}
-		}
-		if _, err := conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		targets <- target
+		if err := writeSocks5Reply(conn, socksReplySucceeded); err != nil {
 			errCh <- errors.Join(err, conn.Close())
 			return
 		}
@@ -733,6 +687,89 @@ func httpConnectUpstream(listener net.Listener, lines chan<- string, errCh chan<
 		}
 	}
 	errCh <- nil
+}
+
+func socks5HTTPUpstream(listener net.Listener, targetCh chan<- string, lineCh chan<- string, errCh chan<- error) {
+	defer close(targetCh)
+	defer close(lineCh)
+
+	conn, err := listener.Accept()
+	if err != nil {
+		if !errors.Is(err, net.ErrClosed) {
+			errCh <- err
+		}
+		return
+	}
+	reader := bufio.NewReader(conn)
+	target, err := readSocks5ConnectTarget(reader, conn)
+	if err != nil {
+		errCh <- err
+		return
+	}
+	targetCh <- target
+	if err := writeSocks5Reply(conn, socksReplySucceeded); err != nil {
+		errCh <- errors.Join(err, conn.Close())
+		return
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		errCh <- errors.Join(err, conn.Close())
+		return
+	}
+	lineCh <- line
+	for {
+		header, err := reader.ReadString('\n')
+		if err != nil {
+			errCh <- errors.Join(err, conn.Close())
+			return
+		}
+		if header == "\r\n" || header == "\n" {
+			break
+		}
+	}
+	if _, err := conn.Write([]byte("HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")); err != nil {
+		errCh <- errors.Join(err, conn.Close())
+		return
+	}
+	if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		errCh <- err
+		return
+	}
+	errCh <- nil
+}
+
+func readSocks5ConnectTarget(reader *bufio.Reader, conn net.Conn) (string, error) {
+	head := make([]byte, 2)
+	if _, err := io.ReadFull(reader, head); err != nil {
+		return "", errors.Join(err, conn.Close())
+	}
+	if head[0] != socksVersion5 {
+		return "", errors.Join(fmt.Errorf("socks version = %d, want 5", head[0]), conn.Close())
+	}
+	methods := make([]byte, int(head[1]))
+	if _, err := io.ReadFull(reader, methods); err != nil {
+		return "", errors.Join(err, conn.Close())
+	}
+	if err := writeAll(conn, []byte{socksVersion5, 0x00}); err != nil {
+		return "", errors.Join(err, conn.Close())
+	}
+	reqHead := make([]byte, 4)
+	if _, err := io.ReadFull(reader, reqHead); err != nil {
+		return "", errors.Join(err, conn.Close())
+	}
+	if reqHead[0] != socksVersion5 || reqHead[1] != socksCmdConnect {
+		return "", errors.Join(fmt.Errorf("socks request head = %v", reqHead), conn.Close())
+	}
+	host, err := readSocksAddr(reader, reqHead[3])
+	if err != nil {
+		return "", errors.Join(err, conn.Close())
+	}
+	portBytes := make([]byte, 2)
+	if _, err := io.ReadFull(reader, portBytes); err != nil {
+		return "", errors.Join(err, conn.Close())
+	}
+	port := binary.BigEndian.Uint16(portBytes)
+	return net.JoinHostPort(host, strconv.Itoa(int(port))), nil
 }
 
 func TestRunProxyDirectsInternalSOCKS5(t *testing.T) {
@@ -1082,7 +1119,7 @@ func udpEchoOnce(conn *net.UDPConn, errCh chan<- error) {
 	errCh <- nil
 }
 
-func TestRunProxyForwardsHTTPRequestStart(t *testing.T) {
+func TestRunProxyConvertsHTTPConnectUpstreamToSocks5(t *testing.T) {
 	targetAddr := reserveTCPAddr(t)
 	upstream, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1094,37 +1131,9 @@ func TestRunProxyForwardsHTTPRequestStart(t *testing.T) {
 		}
 	})
 
-	requestLine := make(chan string, 1)
-	serverErr := make(chan error, 1)
-	go func() {
-		for {
-			conn, err := upstream.Accept()
-			if err != nil {
-				if !errors.Is(err, net.ErrClosed) {
-					serverErr <- err
-				}
-				return
-			}
-			line, err := bufio.NewReader(conn).ReadString('\n')
-			if line == "" {
-				if err != nil && !errors.Is(err, io.EOF) {
-					serverErr <- err
-				}
-				if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-					serverErr <- err
-				}
-				continue
-			}
-			requestLine <- line
-			if _, err := conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")); err != nil {
-				serverErr <- err
-			}
-			if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-				serverErr <- err
-			}
-			return
-		}
-	}()
+	upstreamTargets := make(chan string, 1)
+	upstreamErr := make(chan error, 1)
+	go socks5ConnectUpstream(upstream, upstreamTargets, upstreamErr, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1159,6 +1168,74 @@ func TestRunProxyForwardsHTTPRequestStart(t *testing.T) {
 	}()
 	waitForTCP(t, listenAddr)
 
+	client := dialHTTPConnect(t, listenAddr, targetAddr)
+	if err := client.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		t.Fatal(err)
+	}
+	if target := <-upstreamTargets; target != targetAddr {
+		t.Fatalf("upstream target = %q, want %s", target, targetAddr)
+	}
+	select {
+	case err := <-upstreamErr:
+		if err != nil {
+			t.Fatal(err)
+		}
+	default:
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("proxy did not stop")
+	}
+}
+
+func TestRunProxyConvertsHTTPProxyRequestUpstreamToSocks5(t *testing.T) {
+	targetAddr := reserveTCPAddr(t)
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := upstream.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("close upstream listener: %v", err)
+		}
+	})
+
+	upstreamTarget := make(chan string, 1)
+	upstreamLine := make(chan string, 1)
+	upstreamErr := make(chan error, 1)
+	go socks5HTTPUpstream(upstream, upstreamTarget, upstreamLine, upstreamErr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	listenAddr := reserveTCPAddr(t)
+	_, portText, err := net.SplitHostPort(upstream.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runProxy(ctx, config{
+			ListenAddr:  listenAddr,
+			GatewayIP:   "127.0.0.1",
+			GatewayPort: port,
+			DialTimeout: 100 * time.Millisecond,
+			BufferSize:  4096,
+		}, io.Discard)
+	}()
+	waitForTCP(t, listenAddr)
+
 	client, err := net.DialTimeout("tcp", listenAddr, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -1168,18 +1245,29 @@ func TestRunProxyForwardsHTTPRequestStart(t *testing.T) {
 			t.Errorf("close client: %v", err)
 		}
 	})
-	request := "CONNECT " + targetAddr + " HTTP/1.1\r\n\r\n"
+	request := "GET http://" + targetAddr + "/path?q=1 HTTP/1.1\r\nHost: " + targetAddr + "\r\n\r\n"
 	if _, err := client.Write([]byte(request)); err != nil {
 		t.Fatal(err)
 	}
+	response := make([]byte, len("HTTP/1.1 204"))
+	if _, err := io.ReadFull(client, response); err != nil {
+		t.Fatal(err)
+	}
+	if string(response) != "HTTP/1.1 204" {
+		t.Fatalf("response prefix = %q, want HTTP/1.1 204", response)
+	}
 
-	line := <-requestLine
-	if line != "CONNECT "+targetAddr+" HTTP/1.1\r\n" {
-		t.Fatalf("request line = %q", line)
+	if target := <-upstreamTarget; target != targetAddr {
+		t.Fatalf("upstream target = %q, want %s", target, targetAddr)
+	}
+	if line := <-upstreamLine; line != "GET /path?q=1 HTTP/1.1\r\n" {
+		t.Fatalf("upstream http line = %q", line)
 	}
 	select {
-	case err := <-serverErr:
-		t.Fatal(err)
+	case err := <-upstreamErr:
+		if err != nil {
+			t.Fatal(err)
+		}
 	default:
 	}
 
