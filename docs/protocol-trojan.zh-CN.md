@@ -37,7 +37,7 @@ English version: [protocol-trojan.md](protocol-trojan.md)
 ## 生成配置
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol trojan \
   --transport raw \
   --server-addr proxy.example.com:443 \
@@ -48,7 +48,7 @@ bin/proxy config \
 如果已有证书路径，可以在生成时写入：
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol trojan \
   --transport raw \
   --server-addr proxy.example.com:443 \
@@ -110,8 +110,8 @@ bin/proxy config \
 ## 运行
 
 ```sh
-bin/proxy server
-bin/proxy client
+bin/tcptun server
+bin/tcptun client
 ```
 
 Trojan 当前只承载 TCP。需要 UDP relay 或 tunnel mux 时请选择 `native` 协议。

@@ -52,17 +52,17 @@ English version: [protocol-vmess.md](protocol-vmess.md)
 ## 生成配置
 
 ```sh
-bin/proxy config --protocol vmess --server-addr proxy.example.com:9443
+bin/tcptun config --protocol vmess --server-addr proxy.example.com:9443
 ```
 
 WebSocket + TLS：
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol vmess \
   --transport ws \
   --server-addr proxy.example.com:443 \
-  --tunnel-path /proxy \
+  --tunnel-path /tcptun \
   --tls \
   --tls-server-name proxy.example.com
 ```
@@ -141,8 +141,8 @@ client:
 ## 运行
 
 ```sh
-bin/proxy server
-bin/proxy client
+bin/tcptun server
+bin/tcptun client
 ```
 
 如果需要 UDP relay 或 tunnel mux，请使用 `native` 协议。

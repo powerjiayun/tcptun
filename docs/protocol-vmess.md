@@ -52,17 +52,17 @@ Not supported:
 ## Generate Configs
 
 ```sh
-bin/proxy config --protocol vmess --server-addr proxy.example.com:9443
+bin/tcptun config --protocol vmess --server-addr proxy.example.com:9443
 ```
 
 WebSocket + TLS:
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol vmess \
   --transport ws \
   --server-addr proxy.example.com:443 \
-  --tunnel-path /proxy \
+  --tunnel-path /tcptun \
   --tls \
   --tls-server-name proxy.example.com
 ```
@@ -141,8 +141,8 @@ client:
 ## Run
 
 ```sh
-bin/proxy server
-bin/proxy client
+bin/tcptun server
+bin/tcptun client
 ```
 
 Use `native` when you need UDP relay or tunnel mux.

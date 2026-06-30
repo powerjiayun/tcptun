@@ -1,4 +1,4 @@
-# Proxy Protocol Startkit
+# tcptun Protocol Startkit
 
 Chinese version: [startkit.zh-CN.md](startkit.zh-CN.md)
 
@@ -18,30 +18,30 @@ All examples use placeholders. Do not commit real server addresses, UUIDs, Troja
 Run without flags to start the interactive wizard:
 
 ```sh
-bin/proxy config
+bin/tcptun config
 ```
 
 Generate configs non-interactively:
 
 ```sh
-bin/proxy config --protocol native --server-addr proxy.example.com:9443
-bin/proxy config --protocol vless --server-addr proxy.example.com:9443
-bin/proxy config --protocol vmess --server-addr proxy.example.com:9443
-bin/proxy config --protocol trojan --server-addr proxy.example.com:443 --tls --tls-server-name proxy.example.com
+bin/tcptun config --protocol native --server-addr proxy.example.com:9443
+bin/tcptun config --protocol vless --server-addr proxy.example.com:9443
+bin/tcptun config --protocol vmess --server-addr proxy.example.com:9443
+bin/tcptun config --protocol trojan --server-addr proxy.example.com:443 --tls --tls-server-name proxy.example.com
 ```
 
 By default, config generation writes three files:
 
-- `server.json`: used by `proxy server`.
-- `client.json`: used by `proxy client`.
+- `server.json`: used by `tcptun server`.
+- `client.json`: used by `tcptun client`.
 - `route.json`: used by local/client routing rules and learned direct-failure targets.
 
 Runtime config defaults:
 
-- `proxy server` reads `server.json`.
-- `proxy client` reads `client.json`.
-- `proxy` and `proxy local` read `config.json`.
-- Relative config paths are searched in this order: executable directory, current working directory, then `~/.config/proxy`.
+- `tcptun server` reads `server.json`.
+- `tcptun client` reads `client.json`.
+- `tcptun` and `tcptun local` read `config.json`.
+- Relative config paths are searched in this order: executable directory, current working directory, then `~/.config/tcptun`.
 - If no file exists, write-back uses the executable directory.
 - `--config <path>` overrides the mode default.
 - `--config ""` disables runtime config loading.
@@ -53,27 +53,27 @@ Runtime config defaults:
 Server:
 
 ```sh
-bin/proxy server
+bin/tcptun server
 ```
 
 Client:
 
 ```sh
-bin/proxy client
+bin/tcptun client
 ```
 
 Override the config path:
 
 ```sh
-bin/proxy server --config /etc/proxy/server.json
-bin/proxy client --config /etc/proxy/client.json
+bin/tcptun server --config /etc/proxy/server.json
+bin/tcptun client --config /etc/proxy/client.json
 ```
 
 ## Shared Fields
 
 | Field | Modes | Meaning |
 | --- | --- | --- |
-| `mode` | server/client/local | Runtime mode. `server` accepts tunnel connections, `client` opens the local mixed proxy and forwards through a tunnel server, and `local` discovers a gateway proxy. |
+| `mode` | server/client/local | Runtime mode. `server` accepts tunnel connections, `client` opens the local mixed tcptun and forwards through a tunnel server, and `local` discovers a gateway proxy. |
 | `listen_addr` | server/client/local | Local listen address. Servers commonly use `0.0.0.0:9443`; clients commonly use `127.0.0.1:1080`. |
 | `server_addr` | client | Tunnel server address in `host:port` form. |
 | `token` | server/client | Authentication material. For `native` it is a shared token, for VLESS/VMess it is a UUID, and for Trojan it is the password. |
@@ -89,8 +89,8 @@ bin/proxy client --config /etc/proxy/client.json
 | `tunnel_flow` | server/client | VLESS flow, for example `xtls-rprx-vision`. |
 | `tunnel_mux` | server/client | Enables this project's tunnel multiplexing. Currently supported by `native`. |
 | `gateway_ip` | local | Upstream gateway IP. Leave empty to auto-discover only when the local machine has a private IPv4 address. |
-| `gateway_port` | local | Gateway proxy port. Defaults to `1080`. |
-| `upstream_protocol` | client/local | Upstream protocol used for parsed proxy traffic: `socks5` or `mixed`. |
+| `gateway_port` | local | Gateway tcptun port. Defaults to `1080`. |
+| `upstream_protocol` | client/local | Upstream protocol used for parsed tcptun traffic: `socks5` or `mixed`. |
 | `socks5_username` | client/local | Local SOCKS5 username. Setting username or password enables username/password auth for SOCKS5 clients. |
 | `socks5_password` | client/local | Local SOCKS5 password. |
 | `upstream_socks5_username` | local | Username used when dialing an upstream SOCKS5 gateway. |
@@ -99,16 +99,16 @@ bin/proxy client --config /etc/proxy/client.json
 | `dial_timeout` | server/client/local | TCP dial timeout for upstream, tunnel, and gateway checks. Default is `5s`. |
 | `refresh_interval` | local | Interval for checking local IPv4 changes. Gateway rediscovery only runs after local IPv4 changes. `0` disables refresh. |
 | `scan_timeout` | local | Per-IP timeout when scanning the local IPv4 network for a reachable gateway proxy. |
-| `scan_retry_interval` | local | Pause before retrying local IPv4 network scanning after no reachable gateway proxy is found. Default is `5s`. |
+| `scan_retry_interval` | local | Pause before retrying local IPv4 network scanning after no reachable gateway tcptun is found. Default is `5s`. |
 | `scan_workers` | local | Parallel workers used during local IPv4 network scanning. |
 | `buffer_size` | server/client/local | Per-direction copy buffer size. Values below 4096 are raised to 4096. |
 | `verbose` | server/client/local | Enables debug logs. Access logs are printed regardless of this setting. |
 
 ## Route Fields
 
-Route fields live in `route.json`, not in `server.json`, `client.json`, or `config.json`. `proxy config` writes an empty route file by default.
+Route fields live in `route.json`, not in `server.json`, `client.json`, or `config.json`. `tcptun config` writes an empty route file by default.
 
-When local mode auto-discovers a gateway and local IPv4 scanning finds no reachable proxy, it waits for `scan_retry_interval` and scans the same local private IPv4 networks again. This retry loop stops when at least one proxy is found, the process exits, or the discovery context is canceled. When scanning finds multiple reachable proxies, all of them are kept as upstream candidates and sorted by measured connection latency. New source IPs prefer the fastest known candidate; an existing source IP keeps using its bound upstream until that upstream fails to connect or complete the upstream protocol handshake. Gateway discovery and scanning are still only triggered when the local machine has a private IPv4 address and, after startup, when the local IPv4 address set changes.
+When local mode auto-discovers a gateway and local IPv4 scanning finds no reachable proxy, it waits for `scan_retry_interval` and scans the same local private IPv4 networks again. This retry loop stops when at least one tcptun is found, the process exits, or the discovery context is canceled. When scanning finds multiple reachable proxies, all of them are kept as upstream candidates and sorted by measured connection latency. New source IPs prefer the fastest known candidate; an existing source IP keeps using its bound upstream until that upstream fails to connect or complete the upstream protocol handshake. Gateway discovery and scanning are still only triggered when the local machine has a private IPv4 address and, after startup, when the local IPv4 address set changes.
 
 | Field | Modes | Meaning |
 | --- | --- | --- |
@@ -123,7 +123,7 @@ Before exit, learned direct TCP failures are merged into `route.json` or the con
 
 ## Direct-First Fallback
 
-For parsed TCP proxy traffic, force-upstream route rules win first. Otherwise the proxy tries a direct TCP connection before using the upstream.
+For parsed TCP tcptun traffic, force-upstream route rules win first. Otherwise the tcptun tries a direct TCP connection before using the upstream.
 
 - Plain HTTP requests that normally have no request body must receive a first response byte within `direct_probe_timeout`.
 - HTTP CONNECT and SOCKS5 CONNECT wait for the client's first tunnel payload, send it to the direct target, and require a first response byte within `direct_probe_timeout`.

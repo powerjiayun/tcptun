@@ -33,8 +33,8 @@ Chinese version: [protocol-vless.zh-CN.md](protocol-vless.zh-CN.md)
 | `tunnel_flow` | server/client | VLESS flow, usually `xtls-rprx-vision` for Vision. |
 | `reality_server_name` | client | REALITY serverName sent by the client. |
 | `reality_server_names` | server | Allowed REALITY serverName values. |
-| `reality_public_key` | client | REALITY public key. `proxy config` derives it from `reality_private_key` when both sides are generated together. |
-| `reality_private_key` | server | REALITY private key. In interactive `proxy config`, leave it empty to generate one automatically. |
+| `reality_public_key` | client | REALITY public key. `tcptun config` derives it from `reality_private_key` when both sides are generated together. |
+| `reality_private_key` | server | REALITY private key. In interactive `tcptun config`, leave it empty to generate one automatically. |
 | `reality_short_id` | client | Client shortId in hex, may be empty. |
 | `reality_short_ids` | server | Allowed shortId list, may include the empty value. |
 | `reality_fingerprint` | client | uTLS fingerprint, for example `chrome`. |
@@ -46,7 +46,7 @@ Chinese version: [protocol-vless.zh-CN.md](protocol-vless.zh-CN.md)
 Generate:
 
 ```sh
-bin/proxy config --protocol vless --server-addr proxy.example.com:9443
+bin/tcptun config --protocol vless --server-addr proxy.example.com:9443
 ```
 
 server:
@@ -91,7 +91,7 @@ Requirements:
 Generate:
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol vless \
   --transport raw \
   --tunnel-security reality \
@@ -162,8 +162,8 @@ client:
 ## Run
 
 ```sh
-bin/proxy server
-bin/proxy client
+bin/tcptun server
+bin/tcptun client
 ```
 
 VLESS currently carries TCP only. Use `native` when you need UDP relay or tunnel mux.

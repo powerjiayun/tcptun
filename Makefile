@@ -1,6 +1,6 @@
 GO ?= go
-BINARY ?= bin/proxy
-CMD_PKG ?= ./cmd/proxy
+BINARY ?= bin/tcptun
+CMD_PKG ?= ./cmd/tcptun
 DIST_DIR ?= dist
 LISTEN ?= 127.0.0.1:1080
 MODE ?=
@@ -68,7 +68,7 @@ release:
 		rest=$${target#*/}; \
 		GOARCH=$${rest%%/*}; \
 		GOARM=$${rest#*/}; \
-		name=proxy-$${GOOS}-$${GOARCH}; \
+		name=tcptun-$${GOOS}-$${GOARCH}; \
 		if [ "$${GOARM}" != "$${rest}" ]; then \
 			name=$${name}v$${GOARM}; \
 		fi; \
@@ -107,7 +107,7 @@ help:
 	@echo "  make test     Run tests"
 	@echo "  make fmt      Format Go code"
 	@echo "  make tidy     Tidy Go modules"
-	@echo "  make run      Run proxy with LISTEN/MODE/SERVER_ADDR/TOKEN/TUNNEL_PROTOCOL/TRANSPORT/TUNNEL_SECURITY/FLOW/TUNNEL_PATH/MUX/GATEWAY_IP/GATEWAY_PORT/UPSTREAM_PROTOCOL/CONFIG overrides"
+	@echo "  make run      Run tcptun with LISTEN/MODE/SERVER_ADDR/TOKEN/TUNNEL_PROTOCOL/TRANSPORT/TUNNEL_SECURITY/FLOW/TUNNEL_PATH/MUX/GATEWAY_IP/GATEWAY_PORT/UPSTREAM_PROTOCOL/CONFIG overrides"
 	@echo "  make clean    Remove build output, release output, and local Go cache"
 	@echo ""
 	@echo "Release targets: $(RELEASE_TARGETS)"

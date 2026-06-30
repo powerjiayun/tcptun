@@ -1,4 +1,4 @@
-# Proxy Protocol Startkit
+# tcptun Protocol Startkit
 
 English version: [startkit.md](startkit.md)
 
@@ -16,30 +16,30 @@ English version: [startkit.md](startkit.md)
 不带参数运行时进入交互式配置向导：
 
 ```sh
-bin/proxy config
+bin/tcptun config
 ```
 
 直接生成指定协议配置：
 
 ```sh
-bin/proxy config --protocol native --server-addr proxy.example.com:9443
-bin/proxy config --protocol vless --server-addr proxy.example.com:9443
-bin/proxy config --protocol vmess --server-addr proxy.example.com:9443
-bin/proxy config --protocol trojan --server-addr proxy.example.com:443 --tls --tls-server-name proxy.example.com
+bin/tcptun config --protocol native --server-addr proxy.example.com:9443
+bin/tcptun config --protocol vless --server-addr proxy.example.com:9443
+bin/tcptun config --protocol vmess --server-addr proxy.example.com:9443
+bin/tcptun config --protocol trojan --server-addr proxy.example.com:443 --tls --tls-server-name proxy.example.com
 ```
 
 默认会生成三份文件：
 
-- `server.json`：给 `proxy server` 使用。
-- `client.json`：给 `proxy client` 使用。
+- `server.json`：给 `tcptun server` 使用。
+- `client.json`：给 `tcptun client` 使用。
 - `route.json`：给 local/client 路由规则和学习到的直连失败目标使用。
 
 默认运行规则：
 
-- `proxy server` 默认读取 `server.json`。
-- `proxy client` 默认读取 `client.json`。
-- `proxy` 或 `proxy local` 默认读取 `config.json`。
-- 相对配置路径按顺序搜索：程序所在目录、当前工作目录、`~/.config/proxy`。
+- `tcptun server` 默认读取 `server.json`。
+- `tcptun client` 默认读取 `client.json`。
+- `tcptun` 或 `tcptun local` 默认读取 `config.json`。
+- 相对配置路径按顺序搜索：程序所在目录、当前工作目录、`~/.config/tcptun`。
 - 如果三个位置都不存在，写回时使用程序所在目录。
 - 显式传入 `--config <path>` 时使用指定配置文件。
 - 显式传入 `--config ""` 时禁用运行配置加载。
@@ -51,20 +51,20 @@ bin/proxy config --protocol trojan --server-addr proxy.example.com:443 --tls --t
 服务端：
 
 ```sh
-bin/proxy server
+bin/tcptun server
 ```
 
 客户端：
 
 ```sh
-bin/proxy client
+bin/tcptun client
 ```
 
 也可以直接用命令行覆盖配置：
 
 ```sh
-bin/proxy server --config /etc/proxy/server.json
-bin/proxy client --config /etc/proxy/client.json
+bin/tcptun server --config /etc/proxy/server.json
+bin/tcptun client --config /etc/proxy/client.json
 ```
 
 ## 公共配置字段
@@ -106,7 +106,7 @@ bin/proxy client --config /etc/proxy/client.json
 
 ## 路由配置字段
 
-路由字段写在 `route.json`，不写入 `server.json`、`client.json` 或 `config.json`。`proxy config` 默认会写出一个空的路由文件。
+路由字段写在 `route.json`，不写入 `server.json`、`client.json` 或 `config.json`。`tcptun config` 默认会写出一个空的路由文件。
 
 local 模式自动发现网关时，如果本机内网 IPv4 网段扫描没有找到可达代理，会等待 `scan_retry_interval` 后重新扫描同一批本机内网 IPv4 网段。至少找到一个代理、进程退出或 discovery context 被取消时，重试循环结束。如果扫描找到多个可达代理，会全部保留为上游候选，并按测得的连接延迟排序。新的源 IP 优先选择当前已知最快的候选；已有源 IP 会继续使用已绑定上游，直到该上游连接失败或上游协议握手失败。网关发现和网段扫描仍然只会在本机存在内网 IPv4 地址时触发；启动后也仍然只有本机 IPv4 地址集合发生变化才会重新触发。
 

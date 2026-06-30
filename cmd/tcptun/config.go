@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	proxypkg "sskycn/proxy"
+	proxypkg "sskycn/tcptun"
 
 	"pkg.gostartkit.com/cmd"
 )
@@ -128,13 +128,13 @@ func buildConfigCommand() *cmd.Command {
 	return &cmd.Command{
 		Name:      "config",
 		Aliases:   []string{"cfg", "gen"},
-		UsageLine: "proxy config [flags]",
+		UsageLine: "tcptun config [flags]",
 		Short:     "generate server and client config files",
 		Examples: []string{
-			"proxy config --protocol native",
-			"proxy config --protocol vless --server-addr proxy.example.com:9443",
-			"proxy config --protocol trojan --transport raw --tls --tls-cert server.crt --tls-key server.key --tls-server-name proxy.example.com",
-			"proxy config --target client --output client.json --server-addr proxy.example.com:9443",
+			"tcptun config --protocol native",
+			"tcptun config --protocol vless --server-addr proxy.example.com:9443",
+			"tcptun config --protocol trojan --transport raw --tls --tls-cert server.crt --tls-key server.key --tls-server-name proxy.example.com",
+			"tcptun config --target client --output client.json --server-addr proxy.example.com:9443",
 		},
 		SetFlags: func(f *cmd.FlagSet) {
 			f.StringVar(&opts.target, "target", opts.target, "config target: both, server, or client", "")
@@ -386,7 +386,7 @@ type configWizardDriver struct {
 }
 
 func runInteractiveConfig(ctx context.Context, opts generateConfigOptions, in io.Reader, out io.Writer, errOut io.Writer) error {
-	app := cmd.NewApp("proxy config")
+	app := cmd.NewApp("tcptun config")
 	app.EnableREPL()
 	return app.RunWith(ctx, cmd.REPLRuntime{
 		In:      in,

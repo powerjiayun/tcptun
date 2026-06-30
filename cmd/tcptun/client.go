@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	proxypkg "sskycn/proxy"
+	proxypkg "sskycn/tcptun"
 
 	"pkg.gostartkit.com/cmd"
 )
@@ -23,11 +23,11 @@ func buildClientCommand(cfg *proxypkg.Config) *cmd.Command {
 	return &cmd.Command{
 		Name:      "client",
 		Aliases:   []string{"c", "cli"},
-		UsageLine: "proxy client [flags]",
-		Short:     "run local mixed proxy and forward upstream traffic through a tunnel server",
+		UsageLine: "tcptun client [flags]",
+		Short:     "run local mixed tcptun and forward upstream traffic through a tunnel server",
 		Examples: []string{
-			"proxy client --server-addr 203.0.113.10:9443 --token change-me",
-			"proxy client --listen 127.0.0.1:1081 --server-addr 203.0.113.10:9443",
+			"tcptun client --server-addr 203.0.113.10:9443 --token change-me",
+			"tcptun client --listen 127.0.0.1:1081 --server-addr 203.0.113.10:9443",
 		},
 		SetFlags: func(f *cmd.FlagSet) {
 			f.StringVar(&serverAddrFlag, "server-addr", serverAddrFlag, "tunnel server address", "")

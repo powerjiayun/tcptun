@@ -1,6 +1,6 @@
 //go:build darwin
 
-package proxy
+package tcptun
 
 import (
 	"net"

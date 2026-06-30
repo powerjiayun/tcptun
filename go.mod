@@ -1,4 +1,4 @@
-module sskycn/proxy
+module sskycn/tcptun
 
 go 1.25.0
 

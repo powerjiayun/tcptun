@@ -1,4 +1,4 @@
-package proxy
+package tcptun
 
 import (
 	"bufio"
@@ -586,7 +586,7 @@ func resolveGatewayTargets(ctx context.Context, cfg config, log io.Writer) ([]up
 		return nil, err
 	}
 	if !hasInternalIPv4 {
-		return nil, errors.New("local internal IPv4 address not found; automatic gateway proxy discovery disabled")
+		return nil, errors.New("local internal IPv4 address not found; automatic gateway tcptun discovery disabled")
 	}
 
 	gatewayIP, err := discoverDefaultGateway()
@@ -631,9 +631,9 @@ func resolveGatewayTargets(ctx context.Context, cfg config, log io.Writer) ([]up
 	return candidates, nil
 }
 
-type localIPv4Scanner func(context.Context, int, time.Duration, int, net.IP) ([]reachableProxy, error)
+type localIPv4Scanner func(context.Context, int, time.Duration, int, net.IP) ([]reachableTCPTun, error)
 
-func scanLocalIPv4WithRetry(ctx context.Context, cfg config, gatewayHint net.IP, log io.Writer, scanner localIPv4Scanner) ([]reachableProxy, error) {
+func scanLocalIPv4WithRetry(ctx context.Context, cfg config, gatewayHint net.IP, log io.Writer, scanner localIPv4Scanner) ([]reachableTCPTun, error) {
 	if scanner == nil {
 		return nil, errors.New("local IPv4 scanner is nil")
 	}
@@ -1040,21 +1040,21 @@ func logf(w io.Writer, format string, args ...any) error {
 	return err
 }
 
-func accessLog(w io.Writer, source string, proxy string, target string, status string) error {
+func accessLog(w io.Writer, source string, tcptun string, target string, status string) error {
 	status = strings.ReplaceAll(status, "\n", " ")
 	status = strings.ReplaceAll(status, "\r", " ")
 	target = strings.TrimSpace(target)
 	if target == "" {
 		target = "unknown"
 	}
-	if proxy == "" {
-		proxy = "-"
+	if tcptun == "" {
+		tcptun = "-"
 	}
-	if proxy == "-" {
+	if tcptun == "-" {
 		_, err := fmt.Fprintf(w, "%s -> %s %s\n", source, target, status)
 		return err
 	}
-	_, err := fmt.Fprintf(w, "%s -> %s -> %s %s\n", source, proxy, target, status)
+	_, err := fmt.Fprintf(w, "%s -> %s -> %s %s\n", source, tcptun, target, status)
 	return err
 }
 

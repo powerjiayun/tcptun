@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	proxypkg "sskycn/proxy"
+	proxypkg "sskycn/tcptun"
 
 	"pkg.gostartkit.com/cmd"
 )
@@ -14,7 +14,7 @@ func buildVersionCommand() *cmd.Command {
 	return &cmd.Command{
 		Name:      "version",
 		Aliases:   []string{"v", "ver"},
-		UsageLine: "proxy version",
+		UsageLine: "tcptun version",
 		Short:     "print version",
 		Run: func(ctx context.Context, c *cmd.Command, args []string) error {
 			if len(args) != 0 {

@@ -1,4 +1,4 @@
-package proxy
+package tcptun
 
 import (
 	"bufio"
@@ -38,7 +38,7 @@ var (
 	errSocksUnsupportedCommand = errors.New("unsupported socks command")
 	errSocksUnsupportedAddress = errors.New("unsupported socks address")
 	errHTTPHeaderTooLarge      = errors.New("http header too large")
-	errHTTPMalformedRequest    = errors.New("malformed http proxy request")
+	errHTTPMalformedRequest    = errors.New("malformed http tcptun request")
 )
 
 type socksRequest struct {
@@ -201,7 +201,7 @@ func (s *proxyServer) handleSocks5Connect(ctx context.Context, client net.Conn, 
 		return err
 	}
 	if s.cfg.Verbose {
-		if err := logf(s.log, "proxy socks %s -> %s via %s\n", client.RemoteAddr(), net.JoinHostPort(req.host, strconv.Itoa(int(req.port))), target); err != nil {
+		if err := logf(s.log, "tcptun socks %s -> %s via %s\n", client.RemoteAddr(), net.JoinHostPort(req.host, strconv.Itoa(int(req.port))), target); err != nil {
 			return err
 		}
 	}

@@ -1,6 +1,6 @@
 //go:build !linux && !darwin && !windows
 
-package proxy
+package tcptun
 
 import "net"
 

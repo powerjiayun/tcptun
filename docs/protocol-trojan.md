@@ -37,7 +37,7 @@ Chinese version: [protocol-trojan.zh-CN.md](protocol-trojan.zh-CN.md)
 ## Generate Configs
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol trojan \
   --transport raw \
   --server-addr proxy.example.com:443 \
@@ -48,7 +48,7 @@ bin/proxy config \
 Include certificate paths:
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol trojan \
   --transport raw \
   --server-addr proxy.example.com:443 \
@@ -110,8 +110,8 @@ bin/proxy config \
 ## Run
 
 ```sh
-bin/proxy server
-bin/proxy client
+bin/tcptun server
+bin/tcptun client
 ```
 
 Trojan currently carries TCP only. Use `native` when you need UDP relay or tunnel mux.

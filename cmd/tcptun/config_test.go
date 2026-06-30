@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	proxypkg "sskycn/proxy"
+	proxypkg "sskycn/tcptun"
 )
 
 func TestGenerateConfigFilesBoth(t *testing.T) {

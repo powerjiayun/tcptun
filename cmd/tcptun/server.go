@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	proxypkg "sskycn/proxy"
+	proxypkg "sskycn/tcptun"
 
 	"pkg.gostartkit.com/cmd"
 )
@@ -23,10 +23,10 @@ func buildServerCommand(cfg *proxypkg.Config) *cmd.Command {
 	return &cmd.Command{
 		Name:      "server",
 		Aliases:   []string{"s", "srv"},
-		UsageLine: "proxy server [flags]",
+		UsageLine: "tcptun server [flags]",
 		Short:     "run a native tunnel server",
 		Examples: []string{
-			"proxy server --listen 0.0.0.0:9443 --token change-me",
+			"tcptun server --listen 0.0.0.0:9443 --token change-me",
 		},
 		SetFlags: func(f *cmd.FlagSet) {
 			f.StringVar(&tokenFlag, "token", tokenFlag, "shared token, VLESS/VMess UUID, or Trojan password", "")

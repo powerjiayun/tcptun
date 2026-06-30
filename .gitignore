@@ -9,7 +9,7 @@
 coverage.out
 *.coverprofile
 
-# Generated/local proxy configs
+# Generated/local tcptun configs
 /client.json
 /server.json
 

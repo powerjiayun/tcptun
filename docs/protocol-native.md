@@ -2,7 +2,7 @@
 
 Chinese version: [protocol-native.zh-CN.md](protocol-native.zh-CN.md)
 
-`native` is this project's native tunnel protocol and the default protocol. It is designed for project-owned client/server deployments where low overhead and full feature coverage matter more than compatibility with external proxy stacks.
+`native` is this project's native tunnel protocol and the default protocol. It is designed for project-owned client/server deployments where low overhead and full feature coverage matter more than compatibility with external tcptun stacks.
 
 ## Best For
 
@@ -40,23 +40,23 @@ Chinese version: [protocol-native.zh-CN.md](protocol-native.zh-CN.md)
 Interactive:
 
 ```sh
-bin/proxy config
+bin/tcptun config
 ```
 
 Non-interactive:
 
 ```sh
-bin/proxy config --protocol native --server-addr proxy.example.com:9443
+bin/tcptun config --protocol native --server-addr proxy.example.com:9443
 ```
 
 WebSocket over TLS:
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol native \
   --transport ws \
   --server-addr proxy.example.com:443 \
-  --tunnel-path /proxy \
+  --tunnel-path /tcptun \
   --tls \
   --tls-server-name proxy.example.com
 ```
@@ -135,11 +135,11 @@ Recommendations:
 ## Run
 
 ```sh
-bin/proxy server
-bin/proxy client
+bin/tcptun server
+bin/tcptun client
 ```
 
-The default local proxy address is:
+The default local tcptun address is:
 
 ```text
 127.0.0.1:1080

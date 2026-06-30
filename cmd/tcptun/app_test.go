@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	proxypkg "sskycn/proxy"
+	proxypkg "sskycn/tcptun"
 )
 
 func TestApplyModeConfigPathDefault(t *testing.T) {
@@ -14,7 +14,7 @@ func TestApplyModeConfigPathDefault(t *testing.T) {
 		os.Args = oldArgs
 	}()
 
-	os.Args = []string{"proxy", "client"}
+	os.Args = []string{"tcptun", "client"}
 	cfg := proxypkg.DefaultConfig()
 	applyModeConfigPathDefault(&cfg, "client.json")
 	if cfg.ConfigPath != "client.json" {
@@ -35,7 +35,7 @@ func TestApplyModeConfigPathDefault(t *testing.T) {
 		t.Fatalf("disabled config path = %q", cfg.ConfigPath)
 	}
 
-	os.Args = []string{"proxy", "client", "--config", "config.json"}
+	os.Args = []string{"tcptun", "client", "--config", "config.json"}
 	cfg = proxypkg.DefaultConfig()
 	applyModeConfigPathDefault(&cfg, "server.json")
 	if cfg.ConfigPath != "config.json" {

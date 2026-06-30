@@ -1,4 +1,4 @@
-package proxy
+package tcptun
 
 import (
 	"bufio"
@@ -201,7 +201,7 @@ func (r *udpRelay) handleClientPacket(ctx context.Context, addr *net.UDPAddr, pa
 		return err
 	}
 	if r.server.cfg.Verbose {
-		if err := logf(r.server.log, "udp proxy %s -> %s via %s\n", addr, net.JoinHostPort(dgram.host, strconv.Itoa(int(dgram.port))), upstream.label); err != nil {
+		if err := logf(r.server.log, "udp tcptun %s -> %s via %s\n", addr, net.JoinHostPort(dgram.host, strconv.Itoa(int(dgram.port))), upstream.label); err != nil {
 			return err
 		}
 	}

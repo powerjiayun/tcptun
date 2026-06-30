@@ -1,4 +1,4 @@
-package proxy
+package tcptun
 
 import (
 	"bufio"
@@ -105,7 +105,7 @@ func TestRunProxyRejectsUnknownTrafficWithoutUpstreamForward(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -219,7 +219,7 @@ func TestRunProxyDirectsInternalHTTPConnect(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -310,7 +310,7 @@ func TestRunProxyCachesDirectFailureAndSkipsRetry(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -399,7 +399,7 @@ func TestRunProxyForceUpstreamCIDRSkipsDirect(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -714,7 +714,7 @@ func TestScanLocalIPv4WithRetryRetriesAfterNotFound(t *testing.T) {
 
 	attempts := 0
 	wantIP := net.ParseIP("192.168.1.20")
-	got, err := scanLocalIPv4WithRetry(context.Background(), cfg, nil, io.Discard, func(ctx context.Context, port int, timeout time.Duration, workers int, gatewayHint net.IP) ([]reachableProxy, error) {
+	got, err := scanLocalIPv4WithRetry(context.Background(), cfg, nil, io.Discard, func(ctx context.Context, port int, timeout time.Duration, workers int, gatewayHint net.IP) ([]reachableTCPTun, error) {
 		if ctx == nil {
 			return nil, errors.New("context is nil")
 		}
@@ -725,7 +725,7 @@ func TestScanLocalIPv4WithRetryRetriesAfterNotFound(t *testing.T) {
 		if attempts == 1 {
 			return nil, errReachableProxyNotFound
 		}
-		return []reachableProxy{{ip: wantIP, latency: time.Millisecond}}, nil
+		return []reachableTCPTun{{ip: wantIP, latency: time.Millisecond}}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -744,7 +744,7 @@ func TestScanLocalIPv4WithRetryStopsOnContextCancel(t *testing.T) {
 	cfg.ScanRetryInterval = time.Hour
 
 	attempts := 0
-	_, err := scanLocalIPv4WithRetry(ctx, cfg, nil, io.Discard, func(ctx context.Context, port int, timeout time.Duration, workers int, gatewayHint net.IP) ([]reachableProxy, error) {
+	_, err := scanLocalIPv4WithRetry(ctx, cfg, nil, io.Discard, func(ctx context.Context, port int, timeout time.Duration, workers int, gatewayHint net.IP) ([]reachableTCPTun, error) {
 		attempts++
 		cancel()
 		return nil, errReachableProxyNotFound
@@ -763,7 +763,7 @@ func TestScanLocalIPv4WithRetryDoesNotRetryOtherErrors(t *testing.T) {
 	wantErr := errors.New("interfaces unavailable")
 
 	attempts := 0
-	_, err := scanLocalIPv4WithRetry(context.Background(), cfg, nil, io.Discard, func(ctx context.Context, port int, timeout time.Duration, workers int, gatewayHint net.IP) ([]reachableProxy, error) {
+	_, err := scanLocalIPv4WithRetry(context.Background(), cfg, nil, io.Discard, func(ctx context.Context, port int, timeout time.Duration, workers int, gatewayHint net.IP) ([]reachableTCPTun, error) {
 		attempts++
 		return nil, wantErr
 	})
@@ -800,7 +800,7 @@ func TestResolveConfigPathSearchOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	missingName := "proxy-missing-config-for-test.json"
+	missingName := "tcptun-missing-config-for-test.json"
 	got, err := resolveConfigPath(missingName)
 	if err != nil {
 		t.Fatal(err)
@@ -812,7 +812,7 @@ func TestResolveConfigPathSearchOrder(t *testing.T) {
 
 	workDir := t.TempDir()
 	t.Chdir(workDir)
-	workName := "proxy-work-config-for-test.json"
+	workName := "tcptun-work-config-for-test.json"
 	workPath := filepath.Join(workDir, workName)
 	if err := os.WriteFile(workPath, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
@@ -827,11 +827,11 @@ func TestResolveConfigPathSearchOrder(t *testing.T) {
 
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
-	homeConfigDir := filepath.Join(homeDir, ".config", "proxy")
+	homeConfigDir := filepath.Join(homeDir, ".config", "tcptun")
 	if err := os.MkdirAll(homeConfigDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	homeName := "proxy-home-config-for-test.json"
+	homeName := "tcptun-home-config-for-test.json"
 	homePath := filepath.Join(homeConfigDir, homeName)
 	if err := os.WriteFile(homePath, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1183,7 +1183,7 @@ func TestRunProxyMixedUpstreamFromConfigForwardsUnknownTraffic(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -1268,7 +1268,7 @@ func TestRunProxyMixedUpstreamForwardsHTTPProxyRequestRaw(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -1375,7 +1375,7 @@ func TestRunProxyHTTPDirectNoResponseFallsBackQuickly(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -1518,7 +1518,7 @@ func TestRunProxyHTTPConnectDirectNoResponseFallsBackQuickly(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -1660,7 +1660,7 @@ func TestRunProxySocks5DirectNoResponseFallsBackQuickly(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -1766,7 +1766,7 @@ func TestRunProxyHTTPConnectDirectNoResponseFallsBackToMixedUpstream(t *testing.
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -2455,7 +2455,7 @@ func TestRunProxyDirectsInternalSOCKS5(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -2576,7 +2576,7 @@ func TestRunProxyAcceptsLocalSOCKS5UsernamePassword(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -2651,7 +2651,7 @@ func TestRunProxyUsesUpstreamSOCKS5UsernamePassword(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -2785,7 +2785,7 @@ func TestRunProxyDirectsInternalSOCKS5UDP(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -2814,7 +2814,7 @@ func stopProxy(t *testing.T, cancel context.CancelFunc, errCh <-chan error) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -3036,7 +3036,7 @@ func TestRunProxyConvertsHTTPConnectUpstreamToSocks5(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 
@@ -3124,7 +3124,7 @@ func TestRunProxyConvertsHTTPProxyRequestUpstreamToSocks5(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("proxy did not stop")
+		t.Fatal("tcptun did not stop")
 	}
 }
 

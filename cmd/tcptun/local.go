@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	proxypkg "sskycn/proxy"
+	proxypkg "sskycn/tcptun"
 
 	"pkg.gostartkit.com/cmd"
 )
@@ -15,13 +15,13 @@ func buildLocalCommand(cfg *proxypkg.Config, upstreamProtocolFlag *string) *cmd.
 	return &cmd.Command{
 		Name:      "local",
 		Aliases:   []string{"l", "loc"},
-		UsageLine: "proxy local [flags]",
-		Short:     "run local mixed proxy through the gateway proxy",
+		UsageLine: "tcptun local [flags]",
+		Short:     "run local mixed tcptun through the gateway proxy",
 		Examples: []string{
-			"proxy local",
-			"proxy local --listen 127.0.0.1:1081 --gateway-port 1080",
-			"proxy local --gateway-ip 192.168.1.1",
-			"proxy local --upstream-protocol mixed",
+			"tcptun local",
+			"tcptun local --listen 127.0.0.1:1081 --gateway-port 1080",
+			"tcptun local --gateway-ip 192.168.1.1",
+			"tcptun local --upstream-protocol mixed",
 		},
 		Run: func(ctx context.Context, c *cmd.Command, args []string) error {
 			if len(args) != 0 {

@@ -40,23 +40,23 @@ English version: [protocol-native.md](protocol-native.md)
 交互式生成：
 
 ```sh
-bin/proxy config
+bin/tcptun config
 ```
 
 非交互生成：
 
 ```sh
-bin/proxy config --protocol native --server-addr proxy.example.com:9443
+bin/tcptun config --protocol native --server-addr proxy.example.com:9443
 ```
 
 使用 WebSocket transport：
 
 ```sh
-bin/proxy config \
+bin/tcptun config \
   --protocol native \
   --transport ws \
   --server-addr proxy.example.com:443 \
-  --tunnel-path /proxy \
+  --tunnel-path /tcptun \
   --tls \
   --tls-server-name proxy.example.com
 ```
@@ -137,8 +137,8 @@ client:
 ## 运行
 
 ```sh
-bin/proxy server
-bin/proxy client
+bin/tcptun server
+bin/tcptun client
 ```
 
 客户端启动后，本地代理地址默认是：

@@ -1,4 +1,4 @@
-package proxy
+package tcptun
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-var errReachableProxyNotFound = errors.New("reachable proxy not found")
+var errReachableProxyNotFound = errors.New("reachable tcptun not found")
 
 type ipv4Network struct {
 	local   net.IP
@@ -23,7 +23,7 @@ type localInterface struct {
 	addrs []net.Addr
 }
 
-type reachableProxy struct {
+type reachableTCPTun struct {
 	ip      net.IP
 	latency time.Duration
 }
@@ -62,7 +62,7 @@ func scanLocalIPv4(ctx context.Context, port int, timeout time.Duration, workers
 	return reachable[0].ip, nil
 }
 
-func scanLocalIPv4All(ctx context.Context, port int, timeout time.Duration, workers int, gatewayHint net.IP) ([]reachableProxy, error) {
+func scanLocalIPv4All(ctx context.Context, port int, timeout time.Duration, workers int, gatewayHint net.IP) ([]reachableTCPTun, error) {
 	networks, err := localIPv4Networks(gatewayHint)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func scanLocalIPv4All(ctx context.Context, port int, timeout time.Duration, work
 	defer cancel()
 
 	jobs := make(chan net.IP, workers*2)
-	results := make(chan reachableProxy, workers)
+	results := make(chan reachableTCPTun, workers)
 	var wg sync.WaitGroup
 
 	for i := 0; i < workers; i++ {
@@ -88,7 +88,7 @@ func scanLocalIPv4All(ctx context.Context, port int, timeout time.Duration, work
 			for ip := range jobs {
 				if latency, ok := canConnectTargetLatency(scanCtx, net.JoinHostPort(ip.String(), strconv.Itoa(port)), timeout); ok {
 					select {
-					case results <- reachableProxy{ip: ip, latency: latency}:
+					case results <- reachableTCPTun{ip: ip, latency: latency}:
 					case <-scanCtx.Done():
 						return
 					}
@@ -134,7 +134,7 @@ func scanLocalIPv4All(ctx context.Context, port int, timeout time.Duration, work
 		close(results)
 	}()
 
-	reachable := make([]reachableProxy, 0, 8)
+	reachable := make([]reachableTCPTun, 0, 8)
 	for {
 		select {
 		case result, ok := <-results:

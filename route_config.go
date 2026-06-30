@@ -1,4 +1,4 @@
-package proxy
+package tcptun
 
 import (
 	"encoding/json"
@@ -301,7 +301,7 @@ func configSearchDirs() ([]string, error) {
 	dirs = appendUniquePath(dirs, executableDir)
 	dirs = appendUniquePath(dirs, workingDir)
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		dirs = appendUniquePath(dirs, filepath.Join(home, ".config", "proxy"))
+		dirs = appendUniquePath(dirs, filepath.Join(home, ".config", "tcptun"))
 	} else if err != nil && len(dirs) == 0 {
 		return nil, err
 	}
