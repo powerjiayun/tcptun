@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-var errReachableProxyNotFound = errors.New("reachable tcptun not found")
+var errReachableProxyNotFound = errors.New("reachable proxy not found")
 
 type ipv4Network struct {
 	local   net.IP

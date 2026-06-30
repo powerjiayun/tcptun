@@ -102,8 +102,8 @@ Server:
   "token": "CHANGE_ME_RANDOM_TOKEN",
   "tunnel_protocol": "native",
   "tunnel_transport": "raw",
-  "tunnel_tls_cert": "/etc/proxy/server.crt",
-  "tunnel_tls_key": "/etc/proxy/server.key"
+  "tunnel_tls_cert": "/etc/tcptun/server.crt",
+  "tunnel_tls_key": "/etc/tcptun/server.key"
 }
 ```
 

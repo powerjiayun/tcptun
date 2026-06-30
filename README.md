@@ -1,16 +1,16 @@
 # tcptun
 
-Local mixed tcptun forwarder written in Go.
+Local mixed proxy forwarder and TCP tunnel written in Go.
 
-This tool opens a local mixed tcptun port and forwards upstream traffic through the gateway. The upstream protocol is configurable and defaults to SOCKS5. It is designed for low overhead: connection forwarding uses pooled copy buffers, while HTTP and SOCKS5 requests are parsed only enough to choose direct or upstream routing.
+This tool opens a local mixed proxy port and forwards upstream traffic through the gateway. The upstream protocol is configurable and defaults to SOCKS5. It is designed for low overhead: connection forwarding uses pooled copy buffers, while HTTP and SOCKS5 requests are parsed only enough to choose direct or upstream routing.
 
 English | [简体中文](README.zh-CN.md)
 
 ## Features
 
 - Listens locally on `127.0.0.1:1080` by default.
-- Forwards to the gateway tcptun port `1080` by default.
-- Accepts mixed local tcptun traffic such as SOCKS5, HTTP proxy, and HTTP CONNECT.
+- Forwards to the gateway proxy port `1080` by default.
+- Accepts mixed local proxy traffic such as SOCKS5, HTTP proxy, and HTTP CONNECT.
 - Supports username/password authentication for the local SOCKS5 listener.
 - Uses SOCKS5 for upstream traffic by default; `mixed` upstream mode is also supported.
 - Supports username/password authentication when dialing an upstream SOCKS5 gateway.
@@ -18,10 +18,10 @@ English | [简体中文](README.zh-CN.md)
 - Carries the client/server tunnel over raw TCP, WebSocket, HTTP/2, or HTTP/3 transport.
 - Multiplexes client/server tunnel streams by default, so many TCP connections and UDP relays can share one upstream tunnel transport connection.
 - Supports SOCKS5 UDP ASSOCIATE for UDP relay traffic.
-- Prints compact terminal access logs; direct connections omit the tcptun field.
+- Prints compact terminal access logs; direct connections omit the upstream field.
 - Auto-detects the default gateway IP.
 - Checks whether the detected gateway port is reachable only when the machine has an internal IPv4 address.
-- Scans internal local IPv4 networks when the detected gateway is unreachable and keeps all reachable tcptun candidates.
+- Scans internal local IPv4 networks when the detected gateway is unreachable and keeps all reachable proxy candidates.
 - Prefers faster scanned upstreams while keeping the same source IP bound to the same upstream until that upstream fails.
 - Periodically refreshes reachable upstreams so new connections follow network changes.
 - Connects directly to private, loopback, link-local, `localhost`, and `.local` targets instead of forwarding them upstream.
@@ -78,7 +78,7 @@ Use a known gateway IP:
 bin/tcptun --gateway-ip 192.168.1.1
 ```
 
-Use a different gateway tcptun port:
+Use a different gateway proxy port:
 
 ```sh
 bin/tcptun --gateway-port 7890
@@ -120,7 +120,7 @@ Run as a tunnel client:
 bin/tcptun client --listen 127.0.0.1:1080 --server-addr 203.0.113.10:9443 --token change-me
 ```
 
-Run through an HTTP reverse tcptun or CDN with WebSocket:
+Run through an HTTP reverse proxy or CDN with WebSocket:
 
 ```sh
 bin/tcptun server --listen 127.0.0.1:9443 --transport ws --tunnel-path /tcptun --token change-me
@@ -225,15 +225,15 @@ When multiple upstream candidates are available from scanning, new sources prefe
 
 ## Internal Address Bypass
 
-For SOCKS5, SOCKS5 UDP ASSOCIATE, HTTP CONNECT, and HTTP tcptun requests, the tcptun inspects the requested target. Force-upstream rules in `route.json` have the highest priority. Otherwise, TCP targets are tried directly first. If direct TCP connection fails, that target is remembered as upstream-only and later connections skip the direct attempt. Plain HTTP requests that normally have no request body require a first response byte within `direct_probe_timeout`. HTTP CONNECT and SOCKS5 CONNECT also probe after the client sends its first tunnel payload; if the direct target accepts TCP but never returns content, the tcptun falls back upstream and replays that first payload. UDP targets keep the conservative rule: internal targets go direct, other targets go upstream.
+For SOCKS5, SOCKS5 UDP ASSOCIATE, HTTP CONNECT, and HTTP proxy requests, the tcptun inspects the requested target. Force-upstream rules in `route.json` have the highest priority. Otherwise, TCP targets are tried directly first. If direct TCP connection fails, that target is remembered as upstream-only and later connections skip the direct attempt. Plain HTTP requests that normally have no request body require a first response byte within `direct_probe_timeout`. HTTP CONNECT and SOCKS5 CONNECT also probe after the client sends its first tunnel payload; if the direct target accepts TCP but never returns content, the tcptun falls back upstream and replays that first payload. UDP targets keep the conservative rule: internal targets go direct, other targets go upstream.
 
 ## Upstream Protocol
 
 The upstream protocol can be configured with `--upstream-protocol` or the top-level `upstream_protocol` field in `config.json`. Supported values are `socks5` and `mixed`; the default is `socks5`.
 
-In `socks5` mode, SOCKS5 and HTTP tcptun traffic with a parsed target is converted to SOCKS5 before going upstream. Unknown mixed traffic is rejected because it has no parsed target.
+In `socks5` mode, SOCKS5 and HTTP proxy traffic with a parsed target is converted to SOCKS5 before going upstream. Unknown mixed traffic is rejected because it has no parsed target.
 
-In `mixed` mode, HTTP tcptun traffic and unknown mixed traffic are forwarded to the gateway unchanged. SOCKS5 TCP and UDP still use SOCKS5 negotiation, so the upstream mixed port must support SOCKS5.
+In `mixed` mode, HTTP proxy traffic and unknown mixed traffic are forwarded to the gateway unchanged. SOCKS5 TCP and UDP still use SOCKS5 negotiation, so the upstream mixed port must support SOCKS5.
 
 ## Client/Server Commands
 
@@ -241,15 +241,15 @@ Detailed protocol startkit docs are available in [docs/startkit.md](docs/startki
 
 Running `tcptun` without a subcommand defaults to local mode. If `config.json` contains top-level `"mode": "client"`, `"mode": "server"`, or `"mode": "local"`, that mode is used instead. Explicit `tcptun local`, `tcptun client`, and `tcptun server` subcommands always take priority over the config mode.
 
-`tcptun local` forces local mode: the local mixed tcptun forwards through the discovered gateway proxy, even if `config.json` sets `"mode": "client"` or `"mode": "server"`.
+`tcptun local` forces local mode: the local mixed proxy listener forwards through the discovered gateway, even if `config.json` sets `"mode": "client"` or `"mode": "server"`.
 
-`tcptun server` listens for the configured tunnel protocol and connects to the requested TCP or UDP target from the server side. Use `--listen` to choose the server bind address and `--token` to require authentication.
+`tcptun server` listens for the configured tunnel protocol and connects to requested targets from the server side. TCP is supported by every tunnel protocol; SOCKS5 UDP relay is supported by the `native` tunnel protocol.
 
-`tcptun client` keeps the local mixed tcptun listener, but upstream TCP and UDP traffic with a parsed target is encapsulated to the tunnel server. Use `--server-addr` for the server address and the same `--token` value used by the server.
+`tcptun client` keeps the local mixed proxy listener, but upstream traffic with a parsed target is encapsulated to the tunnel server. Use `--server-addr` for the server address and the same `--token` value used by the server.
 
 By default, `tcptun server` reads `server.json` next to the executable and `tcptun client` reads `client.json` next to the executable. Passing `--config <path>` still overrides those mode defaults; passing `--config ""` disables runtime config loading.
 
-`tcptun config` generates ready-to-edit JSON config files without starting the proxy. Running it without flags starts an interactive wizard backed by the command runtime; press Enter to accept defaults, or enter values for the fields you want to adjust. Passing flags keeps non-interactive generation for scripts. By default it writes `server.json`, `client.json`, and `route.json`, shares one generated token between server/client configs, and accepts `--protocol native|vless|vmess|trojan`.
+`tcptun config` generates ready-to-edit JSON config files without starting a listener. Running it without flags starts an interactive wizard backed by the command runtime; press Enter to accept defaults, or enter values for the fields you want to adjust. Passing generation flags keeps non-interactive generation for scripts. By default it writes `server.json`, `client.json`, and `route.json`, shares one generated token between server/client configs, and accepts `--protocol native|vless|vmess|trojan`.
 
 ```sh
 bin/tcptun config
@@ -257,6 +257,35 @@ bin/tcptun config --protocol native --server-addr proxy.example.com:9443
 bin/tcptun config --protocol vmess --server-addr proxy.example.com:9443
 bin/tcptun config --protocol trojan --transport raw --tls --tls-cert server.crt --tls-key server.key --tls-server-name proxy.example.com
 bin/tcptun config --target client --output client.json --protocol vless --server-addr proxy.example.com:9443
+```
+
+Config generation flags:
+
+```text
+--target <both|server|client>     files to generate [default: both]
+--protocol <native|vless|vmess|trojan>
+--transport <raw|ws|h2|h3>
+--token <string>                  generated when empty; UUID for VLESS/VMess
+--out-dir <path>                  output directory [default: .]
+--server-output <path>            server config output [default: server.json]
+--client-output <path>            client config output [default: client.json]
+--route-output <path>             route config output [default: route.json]
+-o, --output <path>               single output path with --target server/client
+--server-listen <addr>            server listen address [default: 0.0.0.0:9443]
+--client-listen <addr>            client listen address [default: 127.0.0.1:1080]
+--server-addr <addr>              server address written to client config
+--tunnel-path <path>              HTTP/WebSocket tunnel path [default: /proxy]
+--tls, --tls-cert, --tls-key, --tls-server-name, --tls-insecure
+--tunnel-security <none|reality>, --flow <string>
+--reality-server-name, --reality-server-names, --reality-fingerprint
+--reality-public-key, --reality-private-key, --reality-short-id, --reality-short-ids
+--reality-dest, --reality-spider-x
+--mux <true|false>
+--client-upstream-protocol <socks5|mixed>
+--client-socks5-username, --client-socks5-password
+--client-upstream-socks5-username, --client-upstream-socks5-password
+--force-ip-cidrs <cidr,cidr>      initial force-upstream CIDRs in route config
+--overwrite                       replace existing generated files
 ```
 
 Subcommand aliases:
@@ -270,7 +299,7 @@ Subcommand aliases:
 The tunnel transport is selected with `--transport` or `tunnel_transport` in `config.json`:
 
 - `raw`: direct TCP connection to the server. This is the default and has the least overhead.
-- `ws`: WebSocket over HTTP/1.1. This is the most practical option behind nginx HTTP reverse tcptun or common CDNs.
+- `ws`: WebSocket over HTTP/1.1. This is the most practical option behind nginx HTTP reverse proxy or common CDNs.
 - `h2`: HTTP/2 bidirectional request/response stream. Without server certificates it runs as h2c; with `--tls-cert` and `--tls-key` it serves TLS HTTP/2.
 - `h3`: HTTP/3 over QUIC. The server requires `--tls-cert` and `--tls-key`, and the client always uses `https`.
 
@@ -289,7 +318,7 @@ For Xray REALITY/Vision server compatibility, use `tcptun server` with `--transp
 
 Only `native` currently supports SOCKS5 UDP relay and tunnel multiplexing. `vless`, `vmess`, and `trojan` carry TCP streams over the selected transport.
 
-Tunnel multiplexing is enabled by default. With multiplexing enabled, `tcptun client` keeps a shared tunnel transport connection to `tcptun server`, then opens one logical stream for each proxied TCP connection or UDP relay. This reduces WebSocket/HTTP/2/HTTP/3 handshakes and works better behind HTTP/CDN infrastructure. Use `--mux=false` or `"tunnel_mux": false` to fall back to one tunnel transport connection per proxied stream.
+Tunnel multiplexing is enabled by default for the `native` protocol. With multiplexing enabled, `tcptun client` keeps a shared tunnel transport connection to `tcptun server`, then opens one logical stream for each proxied TCP connection or UDP relay. This reduces WebSocket/HTTP/2/HTTP/3 handshakes and works better behind HTTP/CDN infrastructure. Use `--mux=false` or `"tunnel_mux": false` to fall back to one tunnel transport connection per proxied stream.
 
 ### nginx WebSocket Example
 
@@ -299,7 +328,7 @@ For nginx HTTP reverse proxy, run the server on loopback:
 bin/tcptun server --listen 127.0.0.1:9443 --transport ws --tunnel-path /tcptun --token change-me
 ```
 
-Then tcptun a WebSocket location:
+Then configure a WebSocket location:
 
 ```nginx
 location /tcptun {
@@ -320,6 +349,8 @@ bin/tcptun client --server-addr proxy.example.com:443 --transport ws --tunnel-pa
 ## Route Config
 
 Runtime configuration and route rules live in separate files. By default, local mode and `tcptun` without a subcommand read runtime settings from `config.json`, `tcptun server` reads runtime settings from `server.json`, and `tcptun client` reads runtime settings from `client.json`. Route rules use `route.json` unless `--route-config <path>` is provided. Relative config paths are searched in this order: executable directory, current working directory, then `~/.config/tcptun`. If no file exists, write-back uses the executable directory. Use `--route-config ""` to disable route loading and write-back.
+
+Runtime JSON files load the fields shown below plus the client/server tunnel and REALITY fields. Operational knobs such as `gateway_ip`, `gateway_port`, `dial_timeout`, `refresh_interval`, `scan_timeout`, `scan_workers`, `buffer_size`, and `verbose` are command-line or Go API settings; they are not loaded from JSON runtime config files.
 
 Runtime config example:
 
@@ -369,11 +400,11 @@ Before exit, learned direct TCP failures are merged into `route.json` or the con
 
 ## UDP Support
 
-UDP is supported through SOCKS5 UDP ASSOCIATE. The TCP mixed tcptun port negotiates a UDP relay address, then UDP datagrams use the standard SOCKS5 UDP packet header. Internal UDP targets are sent directly from the local relay; non-internal UDP targets are relayed through the upstream gateway's SOCKS5 UDP support.
+UDP is supported through SOCKS5 UDP ASSOCIATE. The TCP mixed proxy port negotiates a UDP relay address, then UDP datagrams use the standard SOCKS5 UDP packet header. Internal UDP targets are sent directly from the local relay; non-internal UDP targets are relayed through the upstream gateway's SOCKS5 UDP support.
 
 ## Access Logs
 
-The tcptun prints one access line for each routed TCP connection and SOCKS5 UDP datagram. The source includes the detected tcptun protocol and a friendly local address; HTTP CONNECT is logged as `httpc`, while normal HTTP tcptun traffic is logged as `http`. Proxied traffic includes the upstream tcptun address; direct traffic omits that middle field. The final field is `ok` or the failure reason.
+The tcptun prints one access line for each routed TCP connection and SOCKS5 UDP datagram. The source includes the detected proxy protocol and a friendly local address; HTTP CONNECT is logged as `httpc`, while normal HTTP proxy traffic is logged as `http`. Proxied traffic includes the upstream address; direct traffic omits that middle field. The final field is `ok` or the failure reason.
 
 ```text
 httpc/localhost:53000 -> 10.207.20.78:1080 -> x.com:443 ok
@@ -390,7 +421,7 @@ socks5-udp/localhost:53002 -> 10.207.20.78:1080 -> 8.8.8.8:53 ok
 --dial-timeout <duration>   upstream dial timeout [default: 5s]
 --direct-probe-timeout <duration> timeout waiting for direct target response before falling back upstream [default: 500ms]
 --gateway-ip <string>       gateway IP; empty means auto-detect
--p, --gateway-port <int>    gateway tcptun port [default: 1080]
+-p, --gateway-port <int>    gateway proxy port [default: 1080]
 -l, --listen <string>       local listen address [default: "127.0.0.1:1080"]
 --socks5-username <string>  local SOCKS5 username; enables username/password auth when set with username or password
 --socks5-password <string>  local SOCKS5 password
@@ -413,7 +444,7 @@ socks5-udp/localhost:53002 -> 10.207.20.78:1080 -> 8.8.8.8:53 ok
 --flow <string>             VLESS flow, for example xtls-rprx-vision
 --transport <string>        tunnel transport: raw, ws, h2, or h3 [default: raw]
 --tunnel-path <string>      HTTP/WebSocket tunnel path [default: /proxy]
---tls                       use TLS for ws/h2 transport
+--tls                       use TLS for raw/ws/h2 transport
 --tls-server-name <string>  TLS server name override
 --tls-insecure              skip TLS certificate verification
 --reality-server-name <string> REALITY serverName

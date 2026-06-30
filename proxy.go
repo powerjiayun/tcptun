@@ -586,7 +586,7 @@ func resolveGatewayTargets(ctx context.Context, cfg config, log io.Writer) ([]up
 		return nil, err
 	}
 	if !hasInternalIPv4 {
-		return nil, errors.New("local internal IPv4 address not found; automatic gateway tcptun discovery disabled")
+		return nil, errors.New("local internal IPv4 address not found; automatic gateway proxy discovery disabled")
 	}
 
 	gatewayIP, err := discoverDefaultGateway()

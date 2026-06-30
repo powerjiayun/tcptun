@@ -53,8 +53,8 @@ bin/tcptun config \
   --transport raw \
   --server-addr proxy.example.com:443 \
   --tls \
-  --tls-cert /etc/proxy/server.crt \
-  --tls-key /etc/proxy/server.key \
+  --tls-cert /etc/tcptun/server.crt \
+  --tls-key /etc/tcptun/server.key \
   --tls-server-name proxy.example.com
 ```
 
@@ -68,8 +68,8 @@ bin/tcptun config \
   "tunnel_protocol": "trojan",
   "tunnel_transport": "raw",
   "tunnel_path": "/proxy",
-  "tunnel_tls_cert": "/etc/proxy/server.crt",
-  "tunnel_tls_key": "/etc/proxy/server.key"
+  "tunnel_tls_cert": "/etc/tcptun/server.crt",
+  "tunnel_tls_key": "/etc/tcptun/server.key"
 }
 ```
 

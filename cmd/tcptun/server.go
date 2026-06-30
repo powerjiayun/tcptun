@@ -24,7 +24,7 @@ func buildServerCommand(cfg *tcptun.Config) *cmd.Command {
 		Name:      "server",
 		Aliases:   []string{"s", "srv"},
 		UsageLine: "tcptun server [flags]",
-		Short:     "run a native tunnel server",
+		Short:     "run a tunnel server",
 		Examples: []string{
 			"tcptun server --listen 0.0.0.0:9443 --token change-me",
 		},

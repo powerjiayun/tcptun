@@ -63,13 +63,13 @@ bin/tcptun client
 也可以直接用命令行覆盖配置：
 
 ```sh
-bin/tcptun server --config /etc/proxy/server.json
-bin/tcptun client --config /etc/proxy/client.json
+bin/tcptun server --config /etc/tcptun/server.json
+bin/tcptun client --config /etc/tcptun/client.json
 ```
 
-## 公共配置字段
+## 运行配置字段
 
-这些字段对多个协议通用。
+这些字段会从 `config.json`、`server.json` 或 `client.json` 加载。
 
 | 字段 | 适用模式 | 含义 |
 | --- | --- | --- |
@@ -88,21 +88,28 @@ bin/tcptun client --config /etc/proxy/client.json
 | `tunnel_security` | server/client | 额外安全层。目前主要用于 VLESS REALITY，值为 `reality`。普通 TLS 不写在这里。 |
 | `tunnel_flow` | server/client | VLESS flow，例如 `xtls-rprx-vision`。 |
 | `tunnel_mux` | server/client | 是否开启本项目 tunnel 多路复用。当前只有 native 协议支持。 |
-| `gateway_ip` | local | 上游网关 IP。留空时仅在本机存在内网 IPv4 地址时自动发现。 |
-| `gateway_port` | local | 网关代理端口，默认 `1080`。 |
 | `upstream_protocol` | client/local | 走上游时使用的本地上游协议，支持 `socks5` 和 `mixed`。 |
 | `socks5_username` | client/local | 本地 SOCKS5 用户名。用户名或密码任一非空时，会对 SOCKS5 客户端启用 username/password 认证。 |
 | `socks5_password` | client/local | 本地 SOCKS5 密码。 |
 | `upstream_socks5_username` | local | 连接上游 SOCKS5 网关时使用的用户名。 |
 | `upstream_socks5_password` | local | 连接上游 SOCKS5 网关时使用的密码。 |
 | `direct_probe_timeout` | client/local | 直连优先探测的超时时间，超时后走上游。默认 `500ms`；JSON 中支持 `"500ms"` 这类 Go duration 字符串。 |
-| `dial_timeout` | server/client/local | TCP 拨号超时时间，用于上游、隧道和网关检测，默认 `5s`。 |
-| `refresh_interval` | local | 检查本机 IPv4 变化的间隔。只有本机 IPv4 变化后才重新发现网关。`0` 表示禁用刷新。 |
-| `scan_timeout` | local | 扫描本机 IPv4 网段时每个 IP 的探测超时。 |
 | `scan_retry_interval` | local | 自动扫描本机 IPv4 网段没有找到可达网关代理时，下一次重扫前的等待时间。默认 `5s`。 |
-| `scan_workers` | local | 扫描本机 IPv4 网段时使用的并发 worker 数。 |
-| `buffer_size` | server/client/local | 每个方向的复制缓冲区大小；低于 4096 时会提升到 4096。 |
-| `verbose` | server/client/local | 是否输出调试日志。访问日志始终会输出。 |
+
+## CLI/API 运行参数
+
+这些设置可以通过命令行 flag 或 Go `Config` 字段设置，但不会从运行配置 JSON 文件加载。
+
+| 设置 | 适用模式 | 含义 |
+| --- | --- | --- |
+| `gateway_ip` / `--gateway-ip` | local | 上游网关 IP。留空时仅在本机存在内网 IPv4 地址时自动发现。 |
+| `gateway_port` / `--gateway-port` | local | 网关代理端口，默认 `1080`。 |
+| `dial_timeout` / `--dial-timeout` | server/client/local | TCP 拨号超时时间，用于上游、隧道和网关检测，默认 `5s`。 |
+| `refresh_interval` / `--refresh-interval` | local | 检查本机 IPv4 变化的间隔。只有本机 IPv4 变化后才重新发现网关。`0` 表示禁用刷新。 |
+| `scan_timeout` / `--scan-timeout` | local | 扫描本机 IPv4 网段时每个 IP 的探测超时。 |
+| `scan_workers` / `--scan-workers` | local | 扫描本机 IPv4 网段时使用的并发 worker 数。 |
+| `buffer_size` / `--buffer-size` | server/client/local | 每个方向的复制缓冲区大小；低于 4096 时会提升到 4096。 |
+| `verbose` / `--verbose` | server/client/local | 是否输出调试日志。访问日志始终会输出。 |
 
 ## 路由配置字段
 

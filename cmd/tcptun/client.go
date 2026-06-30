@@ -24,7 +24,7 @@ func buildClientCommand(cfg *tcptun.Config) *cmd.Command {
 		Name:      "client",
 		Aliases:   []string{"c", "cli"},
 		UsageLine: "tcptun client [flags]",
-		Short:     "run local mixed tcptun and forward upstream traffic through a tunnel server",
+		Short:     "run local mixed proxy traffic through a tunnel server",
 		Examples: []string{
 			"tcptun client --server-addr 203.0.113.10:9443 --token change-me",
 			"tcptun client --listen 127.0.0.1:1081 --server-addr 203.0.113.10:9443",

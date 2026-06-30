@@ -118,8 +118,8 @@ server:
   "token": "00000000-0000-4000-8000-000000000000",
   "tunnel_protocol": "vmess",
   "tunnel_transport": "raw",
-  "tunnel_tls_cert": "/etc/proxy/server.crt",
-  "tunnel_tls_key": "/etc/proxy/server.key"
+  "tunnel_tls_cert": "/etc/tcptun/server.crt",
+  "tunnel_tls_key": "/etc/tcptun/server.key"
 }
 ```
 

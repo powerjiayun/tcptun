@@ -16,7 +16,7 @@ func buildLocalCommand(cfg *tcptun.Config, upstreamProtocolFlag *string) *cmd.Co
 		Name:      "local",
 		Aliases:   []string{"l", "loc"},
 		UsageLine: "tcptun local [flags]",
-		Short:     "run local mixed tcptun through the gateway proxy",
+		Short:     "run local mixed proxy traffic through the gateway",
 		Examples: []string{
 			"tcptun local",
 			"tcptun local --listen 127.0.0.1:1081 --gateway-port 1080",

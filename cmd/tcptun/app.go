@@ -16,12 +16,12 @@ func buildApp() *cmd.App {
 	upstreamProtocolFlag := ""
 
 	app := cmd.NewApp("tcptun")
-	app.Short = "Local mixed tcptun forwarder"
+	app.Short = "Local mixed proxy forwarder"
 	app.Root = &cmd.Command{
 		UsageLine: "tcptun [flags]",
-		Short:     "forward local mixed tcptun traffic through the gateway tcptun port",
-		Long: "Starts a local TCP listener for mixed tcptun clients and forwards each connection " +
-			"through the default gateway's tcptun port. Upstream protocol defaults to SOCKS5.",
+		Short:     "forward local mixed proxy traffic through the gateway port",
+		Long: "Starts a local TCP listener for mixed proxy clients and forwards each connection " +
+			"through the default gateway port. Upstream protocol defaults to SOCKS5.",
 		Examples: []string{
 			"tcptun",
 			"tcptun local",
@@ -34,7 +34,7 @@ func buildApp() *cmd.App {
 		SetFlags: func(f *cmd.FlagSet) {
 			f.StringVar(&cfg.ListenAddr, "listen", cfg.ListenAddr, "local listen address", "l")
 			f.StringVar(&cfg.GatewayIP, "gateway-ip", cfg.GatewayIP, "gateway IP; empty means auto-detect", "")
-			f.IntVar(&cfg.GatewayPort, "gateway-port", cfg.GatewayPort, "gateway tcptun port", "p")
+			f.IntVar(&cfg.GatewayPort, "gateway-port", cfg.GatewayPort, "gateway proxy port", "p")
 			f.StringVar(&upstreamProtocolFlag, "upstream-protocol", upstreamProtocolFlag, "upstream protocol: socks5 or mixed [default: socks5]", "")
 			f.StringVar(&cfg.SOCKS5Username, "socks5-username", cfg.SOCKS5Username, "local SOCKS5 username; enables username/password auth when set with username or password", "")
 			f.StringVar(&cfg.SOCKS5Password, "socks5-password", cfg.SOCKS5Password, "local SOCKS5 password", "")
@@ -46,7 +46,7 @@ func buildApp() *cmd.App {
 			f.DurationVar(&cfg.DirectProbeTimeout, "direct-probe-timeout", cfg.DirectProbeTimeout, "timeout waiting for direct target response before falling back upstream", "")
 			f.DurationVar(&cfg.RefreshInterval, "refresh-interval", cfg.RefreshInterval, "interval for checking local IPv4 changes; 0 disables refresh", "")
 			f.DurationVar(&cfg.ScanTimeout, "scan-timeout", cfg.ScanTimeout, "per-IP timeout when scanning local IPv4 networks", "")
-			f.DurationVar(&cfg.ScanRetryInterval, "scan-retry-interval", cfg.ScanRetryInterval, "pause before retrying local IPv4 network scanning after no tcptun is found", "")
+			f.DurationVar(&cfg.ScanRetryInterval, "scan-retry-interval", cfg.ScanRetryInterval, "pause before retrying local IPv4 network scanning after no proxy is found", "")
 			f.IntVar(&cfg.ScanWorkers, "scan-workers", cfg.ScanWorkers, "parallel workers used for IPv4 network scanning", "")
 			f.IntVar(&cfg.BufferSize, "buffer-size", cfg.BufferSize, "per-direction copy buffer size in bytes", "")
 			f.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "enable debug logs", "v")
