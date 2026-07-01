@@ -57,7 +57,7 @@ type nativeUDPUpstream struct {
 }
 
 func runTunnelServer(ctx context.Context, cfg config, log io.Writer) error {
-	listenAddrs, err := serverListenAddrs(cfg)
+	listenAddrs, err := configListenAddrs(cfg)
 	if err != nil {
 		return err
 	}

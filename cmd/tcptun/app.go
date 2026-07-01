@@ -13,6 +13,7 @@ import (
 
 func buildApp() *cmd.App {
 	cfg := tcptun.DefaultConfig()
+	listenFlag := strings.Join(cfg.ListenAddrs, ",")
 	upstreamProtocolFlag := ""
 
 	app := cmd.NewApp("tcptun")
@@ -32,7 +33,7 @@ func buildApp() *cmd.App {
 			"tcptun --upstream-protocol mixed",
 		},
 		SetFlags: func(f *cmd.FlagSet) {
-			f.StringVar(&cfg.ListenAddr, "listen", cfg.ListenAddr, "local listen address", "l")
+			f.StringVar(&listenFlag, "listen", listenFlag, "comma-separated local listen addresses", "l")
 			f.StringVar(&cfg.GatewayIP, "gateway-ip", cfg.GatewayIP, "gateway IP; empty means auto-detect", "")
 			f.IntVar(&cfg.GatewayPort, "gateway-port", cfg.GatewayPort, "gateway proxy port", "p")
 			f.StringVar(&upstreamProtocolFlag, "upstream-protocol", upstreamProtocolFlag, "upstream protocol: socks5 or mixed [default: socks5]", "")
@@ -59,6 +60,7 @@ func buildApp() *cmd.App {
 			cfg.TunnelProtocol = ""
 			cfg.TunnelTransport = ""
 			cfg.TunnelPath = ""
+			applyListenFlag(&cfg, listenFlag)
 			if strings.TrimSpace(upstreamProtocolFlag) != "" {
 				cfg.UpstreamProtocol = upstreamProtocolFlag
 			} else {
@@ -67,9 +69,37 @@ func buildApp() *cmd.App {
 			return tcptun.RunProxy(ctx, cfg, os.Stderr)
 		},
 	}
-	app.AddCommands(buildLocalCommand(&cfg, &upstreamProtocolFlag), buildClientCommand(&cfg), buildServerCommand(&cfg), buildConfigCommand(), buildVersionCommand())
+	app.AddCommands(buildLocalCommand(&cfg, &upstreamProtocolFlag, &listenFlag), buildClientCommand(&cfg, &listenFlag), buildServerCommand(&cfg, &listenFlag), buildConfigCommand(), buildVersionCommand())
 
 	return app
+}
+
+func applyListenFlag(cfg *tcptun.Config, listenFlag string) {
+	if cfg == nil {
+		return
+	}
+	cfg.ListenAddr = ""
+	cfg.ListenAddrs = splitCommaList(listenFlag)
+}
+
+func listenConfigMatchesDefault(cfg *tcptun.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	addrs := cfg.ListenAddrs
+	if len(addrs) == 0 && strings.TrimSpace(cfg.ListenAddr) != "" {
+		addrs = splitCommaList(cfg.ListenAddr)
+	}
+	defaultAddrs := tcptun.DefaultConfig().ListenAddrs
+	if len(addrs) != len(defaultAddrs) {
+		return false
+	}
+	for i := range addrs {
+		if addrs[i] != defaultAddrs[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func applyModeConfigPathDefault(cfg *tcptun.Config, defaultPath string) {
@@ -91,6 +121,19 @@ func hasExplicitConfigPathFlag(args []string) bool {
 			continue
 		}
 		if name == "config" || name == "c" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasExplicitListenFlag(args []string) bool {
+	for _, arg := range args {
+		name, ok := configFlagName(arg)
+		if !ok {
+			continue
+		}
+		if name == "listen" || name == "l" {
 			return true
 		}
 	}

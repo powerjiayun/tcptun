@@ -29,7 +29,6 @@ const (
 
 type generatedRouteConfig struct {
 	Mode                   string   `json:"mode,omitempty"`
-	ListenAddr             string   `json:"listen_addr,omitempty"`
 	ListenAddrs            []string `json:"listen_addrs,omitempty"`
 	ServerAddr             string   `json:"server_addr,omitempty"`
 	Token                  string   `json:"token,omitempty"`
@@ -147,8 +146,8 @@ func buildConfigCommand() *cmd.Command {
 			f.StringVar(&opts.clientOutput, "client-output", opts.clientOutput, "client config output filename or path", "")
 			f.StringVar(&opts.routeOutput, "route-output", opts.routeOutput, "route config output filename or path", "")
 			f.StringVar(&opts.serverOutput, "output", opts.serverOutput, "single output path when --target is server or client", "o")
-			f.StringVar(&opts.serverListen, "server-listen", opts.serverListen, "server listen address written to server config", "")
-			f.StringVar(&opts.clientListen, "client-listen", opts.clientListen, "client local listen address written to client config", "")
+			f.StringVar(&opts.serverListen, "server-listen", opts.serverListen, "comma-separated server listen addresses written to server config", "")
+			f.StringVar(&opts.clientListen, "client-listen", opts.clientListen, "comma-separated client local listen addresses written to client config", "")
 			f.StringVar(&opts.serverAddr, "server-addr", opts.serverAddr, "server address written to client config", "")
 			f.StringVar(&opts.tunnelPath, "tunnel-path", opts.tunnelPath, "HTTP/WebSocket tunnel path", "")
 			f.BoolVar(&opts.tunnelTLS, "tls", opts.tunnelTLS, "enable TLS for client config and write cert/key paths to server config when provided", "")
@@ -455,11 +454,11 @@ func (w *configWizard) collect(ctx context.Context) (generateConfigOptions, erro
 	if err != nil {
 		return generateConfigOptions{}, err
 	}
-	opts.serverListen, err = w.readString("Server listen address", opts.serverListen)
+	opts.serverListen, err = w.readString("Server listen addresses", opts.serverListen)
 	if err != nil {
 		return generateConfigOptions{}, err
 	}
-	opts.clientListen, err = w.readString("Client listen address", opts.clientListen)
+	opts.clientListen, err = w.readString("Client listen addresses", opts.clientListen)
 	if err != nil {
 		return generateConfigOptions{}, err
 	}
@@ -726,21 +725,18 @@ func strconvBool(value bool) string {
 
 func buildGeneratedConfigs(protocol string, transport string, token string, opts generateConfigOptions, mux bool, muxSet bool) (generatedRouteConfig, generatedRouteConfig) {
 	serverListenAddrs := splitCommaList(opts.serverListen)
+	clientListenAddrs := splitCommaList(opts.clientListen)
 	serverCfg := generatedRouteConfig{
 		Mode:            tcptun.ProxyModeServer,
+		ListenAddrs:     serverListenAddrs,
 		Token:           token,
 		TunnelProtocol:  protocol,
 		TunnelTransport: transport,
 		TunnelPath:      normalizeGeneratedPath(opts.tunnelPath),
 	}
-	if len(serverListenAddrs) > 1 {
-		serverCfg.ListenAddrs = serverListenAddrs
-	} else {
-		serverCfg.ListenAddr = strings.TrimSpace(opts.serverListen)
-	}
 	clientCfg := generatedRouteConfig{
 		Mode:                   tcptun.ProxyModeClient,
-		ListenAddr:             strings.TrimSpace(opts.clientListen),
+		ListenAddrs:            clientListenAddrs,
 		ServerAddr:             strings.TrimSpace(opts.serverAddr),
 		Token:                  token,
 		TunnelProtocol:         protocol,

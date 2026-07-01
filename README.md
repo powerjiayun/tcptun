@@ -243,7 +243,7 @@ Running `tcptun` without a subcommand defaults to local mode. If `config.json` c
 
 `tcptun local` forces local mode: the local mixed proxy listener forwards through the discovered gateway, even if `config.json` sets `"mode": "client"` or `"mode": "server"`.
 
-`tcptun server` listens for the configured tunnel protocol and connects to requested targets from the server side. Server-side outbound targets must resolve to public IP addresses; private, loopback, link-local, multicast, CGNAT, and reserved ranges are rejected before dialing. TCP and SOCKS5 UDP relay are supported by every tunnel protocol. Use `--listen addr1,addr2` or JSON `listen_addrs` to bind one server to multiple local addresses.
+`tcptun server` listens for the configured tunnel protocol and connects to requested targets from the server side. Server-side outbound targets must resolve to public IP addresses; private, loopback, link-local, multicast, CGNAT, and reserved ranges are rejected before dialing. TCP and SOCKS5 UDP relay are supported by every tunnel protocol. All modes support multiple local listeners with `--listen addr1,addr2` or JSON `listen_addrs`.
 
 `tcptun client` keeps the local mixed proxy listener, but upstream traffic with a parsed target is encapsulated to the tunnel server. Use `--server-addr` for the server address and the same `--token` value used by the server.
 
@@ -271,8 +271,8 @@ Config generation flags:
 --client-output <path>            client config output [default: client.json]
 --route-output <path>             route config output [default: route.json]
 -o, --output <path>               single output path with --target server/client
---server-listen <addr>            server listen address [default: 0.0.0.0:9443]
---client-listen <addr>            client listen address [default: 127.0.0.1:1080]
+--server-listen <addr[,addr...]>  server listen addresses [default: 0.0.0.0:9443]
+--client-listen <addr[,addr...]>  client listen addresses [default: 127.0.0.1:1080]
 --server-addr <addr>              server address written to client config
 --tunnel-path <path>              HTTP/WebSocket tunnel path [default: /proxy]
 --tls, --tls-cert, --tls-key, --tls-server-name, --tls-insecure
@@ -357,7 +357,7 @@ Runtime config example:
 ```json
 {
   "mode": "local",
-  "listen_addr": "127.0.0.1:1080",
+  "listen_addrs": ["127.0.0.1:1080"],
   "upstream_protocol": "socks5",
   "socks5_username": "",
   "socks5_password": "",
@@ -373,7 +373,7 @@ Runtime config example:
 }
 ```
 
-Server configs may use `listen_addrs` instead of `listen_addr` when the same server should bind multiple addresses:
+Use `listen_addrs` when the same process should bind multiple local addresses:
 
 ```json
 {
@@ -434,7 +434,7 @@ socks5-udp/localhost:53002 -> 10.207.20.78:1080 -> 8.8.8.8:53 ok
 --direct-probe-timeout <duration> timeout waiting for direct target response before falling back upstream [default: 500ms]
 --gateway-ip <string>       gateway IP; empty means auto-detect
 -p, --gateway-port <int>    gateway proxy port [default: 1080]
--l, --listen <string>       local listen address [default: "127.0.0.1:1080"]
+-l, --listen <string>       comma-separated local listen addresses [default: "127.0.0.1:1080"]
 --socks5-username <string>  local SOCKS5 username; enables username/password auth when set with username or password
 --socks5-password <string>  local SOCKS5 password
 --refresh-interval <duration> interval for checking local IPv4 changes; 0 disables refresh [default: 5s]

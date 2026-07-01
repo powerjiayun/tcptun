@@ -64,7 +64,7 @@ bin/tcptun config \
 ```json
 {
   "mode": "server",
-  "listen_addr": "0.0.0.0:443",
+  "listen_addrs": ["0.0.0.0:443"],
   "token": "CHANGE_ME_TROJAN_PASSWORD",
   "tunnel_protocol": "trojan",
   "tunnel_transport": "raw",
@@ -79,7 +79,7 @@ bin/tcptun config \
 ```json
 {
   "mode": "client",
-  "listen_addr": "127.0.0.1:1080",
+  "listen_addrs": ["127.0.0.1:1080"],
   "server_addr": "proxy.example.com:443",
   "token": "CHANGE_ME_TROJAN_PASSWORD",
   "tunnel_protocol": "trojan",

@@ -60,8 +60,8 @@
       "generator.transport": "Transport",
       "generator.security": "Security",
       "generator.serverAddr": "Server addr",
-      "generator.serverListen": "Server listen",
-      "generator.clientListen": "Client listen",
+      "generator.serverListen": "Server listens",
+      "generator.clientListen": "Client listens",
       "generator.path": "Tunnel path",
       "generator.serverName": "Server name",
       "generator.realityDest": "REALITY dest",
@@ -82,7 +82,7 @@
       "converter.targetServer": "server.json from inbound",
       "converter.tag": "Tag",
       "converter.tagPlaceholder": "optional inbound/outbound tag",
-      "converter.listen": "Listen",
+      "converter.listen": "Listens",
       "converter.upstream": "Upstream",
       "converter.source": "Xray / V2Ray JSON",
       "converter.convert": "Convert",
@@ -345,7 +345,7 @@
     const tunnelPath = normalizePath(form.path);
     const server = {
       mode: "server",
-      listen_addr: form.serverListen,
+      listen_addrs: listenAddrs(form.serverListen, DEFAULT_SERVER_LISTEN),
       token,
       tunnel_protocol: protocol,
       tunnel_transport: transport,
@@ -353,7 +353,7 @@
     };
     const client = {
       mode: "client",
-      listen_addr: form.clientListen,
+      listen_addrs: listenAddrs(form.clientListen, DEFAULT_CLIENT_LISTEN),
       server_addr: form.serverAddr,
       token,
       tunnel_protocol: protocol,
@@ -486,7 +486,7 @@
     const transport = mapTransport(stream);
     const output = {
       mode: "client",
-      listen_addr: options.listen || DEFAULT_CLIENT_LISTEN,
+      listen_addrs: listenAddrs(options.listen, DEFAULT_CLIENT_LISTEN),
       server_addr: joinHostPort(server.address, server.port),
       token: server.token,
       tunnel_protocol: protocol,
@@ -507,7 +507,7 @@
     const transport = mapTransport(stream);
     const output = {
       mode: "server",
-      listen_addr: serverListen(inbound, options.listen),
+      listen_addrs: listenAddrs(serverListen(inbound, options.listen), DEFAULT_SERVER_LISTEN),
       token: auth.token,
       tunnel_protocol: protocol,
       tunnel_transport: transport.transport,
@@ -595,6 +595,14 @@
     const host = inbound.listen || "0.0.0.0";
     if (!inbound.port) return DEFAULT_SERVER_LISTEN;
     return joinHostPort(host, inbound.port);
+  }
+
+  function listenAddrs(value, fallback) {
+    const parts = String(value || fallback || "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return parts.length ? parts : [];
   }
 
   function mapTransport(stream) {

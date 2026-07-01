@@ -243,7 +243,7 @@ bin/tcptun client --server-addr proxy.example.com:9443 --transport h3 --tunnel-p
 
 `tcptun local` 会强制 local 模式：本地 mixed 代理通过发现到的网关转发，即使 `config.json` 里写了 `"mode": "client"` 或 `"mode": "server"`。
 
-`tcptun server` 会监听配置的隧道协议，并在服务端侧连接真实目标。服务端出站目标必须解析为公网 IP；私有、回环、链路本地、组播、CGNAT 和保留网段会在拨号前被拒绝。所有隧道协议都支持 TCP 和 SOCKS5 UDP relay。使用 `--listen` 指定服务端监听地址，使用 `--token` 开启认证；如果要同时监听多个本地地址，可以使用 `--listen addr1,addr2` 或 JSON 里的 `listen_addrs`。
+`tcptun server` 会监听配置的隧道协议，并在服务端侧连接真实目标。服务端出站目标必须解析为公网 IP；私有、回环、链路本地、组播、CGNAT 和保留网段会在拨号前被拒绝。所有隧道协议都支持 TCP 和 SOCKS5 UDP relay。所有模式都支持多个本地监听地址，可以使用 `--listen addr1,addr2` 或 JSON 里的 `listen_addrs`。
 
 `tcptun client` 保持本地 mixed 代理入口，但会把已解析出目标的上游流量封装到隧道服务端。使用 `--server-addr` 指定服务端地址，`--token` 需要和服务端一致。
 
@@ -271,8 +271,8 @@ bin/tcptun config --target client --output client.json --protocol vless --server
 --client-output <path>            client 配置输出路径 [默认: client.json]
 --route-output <path>             route 配置输出路径 [默认: route.json]
 -o, --output <path>               配合 --target server/client 使用的单文件输出路径
---server-listen <addr>            server 监听地址 [默认: 0.0.0.0:9443]
---client-listen <addr>            client 监听地址 [默认: 127.0.0.1:1080]
+--server-listen <addr[,addr...]>  server 监听地址列表 [默认: 0.0.0.0:9443]
+--client-listen <addr[,addr...]>  client 监听地址列表 [默认: 127.0.0.1:1080]
 --server-addr <addr>              写入 client 配置的服务端地址
 --tunnel-path <path>              HTTP/WebSocket 隧道路由路径 [默认: /proxy]
 --tls, --tls-cert, --tls-key, --tls-server-name, --tls-insecure
@@ -357,7 +357,7 @@ bin/tcptun client --server-addr proxy.example.com:443 --transport ws --tunnel-pa
 ```json
 {
   "mode": "local",
-  "listen_addr": "127.0.0.1:1080",
+  "listen_addrs": ["127.0.0.1:1080"],
   "upstream_protocol": "socks5",
   "socks5_username": "",
   "socks5_password": "",
@@ -373,7 +373,7 @@ bin/tcptun client --server-addr proxy.example.com:443 --transport ws --tunnel-pa
 }
 ```
 
-server 配置需要绑定多个地址时，可以用 `listen_addrs` 替代 `listen_addr`：
+同一个进程需要绑定多个本地地址时，使用 `listen_addrs`：
 
 ```json
 {
@@ -434,7 +434,7 @@ socks5-udp/localhost:53002 -> 10.207.20.78:1080 -> 8.8.8.8:53 ok
 --direct-probe-timeout <duration> 等待直连目标响应的超时时间，超时后走上游 [默认: 500ms]
 --gateway-ip <string>       网关 IP；为空表示自动发现
 -p, --gateway-port <int>    网关代理端口 [默认: 1080]
--l, --listen <string>       本机监听地址 [默认: "127.0.0.1:1080"]
+-l, --listen <string>       逗号分隔的本机监听地址列表 [默认: "127.0.0.1:1080"]
 --socks5-username <string>  本地 SOCKS5 用户名；用户名或密码任一非空时启用 username/password 认证
 --socks5-password <string>  本地 SOCKS5 密码
 --refresh-interval <duration> 检查本机 IPv4 变化的间隔；0 表示禁用刷新 [默认: 5s]

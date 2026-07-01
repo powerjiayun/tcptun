@@ -25,7 +25,6 @@ type routeConfigFile struct {
 
 type runtimeConfigFile struct {
 	Mode                   string         `json:"mode,omitempty"`
-	ListenAddr             string         `json:"listen_addr,omitempty"`
 	ListenAddrs            []string       `json:"listen_addrs,omitempty"`
 	ServerAddr             string         `json:"server_addr,omitempty"`
 	Token                  string         `json:"token,omitempty"`
@@ -168,11 +167,9 @@ func applyRuntimeConfigDefaults(cfg *config) error {
 	if strings.TrimSpace(cfg.Mode) == "" {
 		cfg.Mode = fileCfg.Mode
 	}
-	if len(fileCfg.ListenAddrs) > 0 && len(cfg.ListenAddrs) == 0 && (strings.TrimSpace(cfg.ListenAddr) == "" || cfg.ListenAddr == DefaultConfig().ListenAddr) {
+	if len(fileCfg.ListenAddrs) > 0 && listenConfigIsUnsetOrDefault(*cfg) {
+		cfg.ListenAddr = ""
 		cfg.ListenAddrs = fileCfg.ListenAddrs
-	}
-	if strings.TrimSpace(fileCfg.ListenAddr) != "" && len(cfg.ListenAddrs) == 0 && (strings.TrimSpace(cfg.ListenAddr) == "" || cfg.ListenAddr == DefaultConfig().ListenAddr) {
-		cfg.ListenAddr = fileCfg.ListenAddr
 	}
 	if strings.TrimSpace(cfg.ServerAddr) == "" {
 		cfg.ServerAddr = fileCfg.ServerAddr
@@ -347,21 +344,21 @@ func readRouteConfig(path string) (routeConfigFile, error) {
 }
 
 func readRuntimeConfig(path string) (runtimeConfigFile, error) {
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return runtimeConfigFile{}, err
 	}
 
-	var cfg runtimeConfigFile
-	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(&cfg); err != nil {
-		closeErr := file.Close()
-		if closeErr != nil {
-			return runtimeConfigFile{}, errors.Join(err, closeErr)
-		}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return runtimeConfigFile{}, err
 	}
-	if err := file.Close(); err != nil {
+	if _, ok := raw["listen_addr"]; ok {
+		return runtimeConfigFile{}, errors.New("listen_addr is no longer supported; use listen_addrs")
+	}
+
+	var cfg runtimeConfigFile
+	if err := json.Unmarshal(data, &cfg); err != nil {
 		return runtimeConfigFile{}, err
 	}
 	return cfg, nil

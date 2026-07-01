@@ -11,7 +11,7 @@ import (
 	"pkg.gostartkit.com/cmd"
 )
 
-func buildServerCommand(cfg *tcptun.Config) *cmd.Command {
+func buildServerCommand(cfg *tcptun.Config, listenFlag *string) *cmd.Command {
 	tokenFlag := ""
 	protocolFlag := ""
 	transportFlag := ""
@@ -49,7 +49,11 @@ func buildServerCommand(cfg *tcptun.Config) *cmd.Command {
 			}
 			cfg.Mode = tcptun.ProxyModeServer
 			applyModeConfigPathDefault(cfg, "server.json")
-			if cfg.ListenAddr == tcptun.DefaultConfig().ListenAddr {
+			if listenFlag != nil {
+				applyListenFlag(cfg, *listenFlag)
+			}
+			if !hasExplicitListenFlag(os.Args[1:]) && listenConfigMatchesDefault(cfg) {
+				cfg.ListenAddrs = nil
 				cfg.ListenAddr = ""
 			}
 			if strings.TrimSpace(tokenFlag) != "" {

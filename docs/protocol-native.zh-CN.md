@@ -67,7 +67,7 @@ bin/tcptun config \
 ```json
 {
   "mode": "server",
-  "listen_addr": "0.0.0.0:9443",
+  "listen_addrs": ["0.0.0.0:9443"],
   "token": "CHANGE_ME_RANDOM_TOKEN",
   "tunnel_protocol": "native",
   "tunnel_transport": "raw",
@@ -81,7 +81,7 @@ bin/tcptun config \
 ```json
 {
   "mode": "client",
-  "listen_addr": "127.0.0.1:1080",
+  "listen_addrs": ["127.0.0.1:1080"],
   "server_addr": "proxy.example.com:9443",
   "token": "CHANGE_ME_RANDOM_TOKEN",
   "tunnel_protocol": "native",
@@ -101,7 +101,7 @@ server:
 ```json
 {
   "mode": "server",
-  "listen_addr": "0.0.0.0:443",
+  "listen_addrs": ["0.0.0.0:443"],
   "token": "CHANGE_ME_RANDOM_TOKEN",
   "tunnel_protocol": "native",
   "tunnel_transport": "raw",
@@ -115,7 +115,7 @@ client:
 ```json
 {
   "mode": "client",
-  "listen_addr": "127.0.0.1:1080",
+  "listen_addrs": ["127.0.0.1:1080"],
   "server_addr": "proxy.example.com:443",
   "token": "CHANGE_ME_RANDOM_TOKEN",
   "tunnel_protocol": "native",

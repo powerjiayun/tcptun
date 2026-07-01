@@ -660,7 +660,7 @@ func TestApplyRuntimeConfigDefaultsLoadsModeOnlyWhenEmpty(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	configBody := []byte(`{
 		"mode": "client",
-		"listen_addr": "127.0.0.1:19080",
+		"listen_addrs": ["127.0.0.1:19080"],
 		"server_addr": "203.0.113.10:9443",
 		"token": "secret",
 		"tunnel_protocol": "vless",
@@ -680,8 +680,8 @@ func TestApplyRuntimeConfigDefaultsLoadsModeOnlyWhenEmpty(t *testing.T) {
 	if cfg.Mode != proxyModeClient {
 		t.Fatalf("mode = %q, want %q", cfg.Mode, proxyModeClient)
 	}
-	if cfg.ListenAddr != "127.0.0.1:19080" {
-		t.Fatalf("listen addr = %q", cfg.ListenAddr)
+	if got, want := strings.Join(cfg.ListenAddrs, ","), "127.0.0.1:19080"; got != want {
+		t.Fatalf("listen addrs = %q, want %q", got, want)
 	}
 	if cfg.ServerAddr != "203.0.113.10:9443" {
 		t.Fatalf("server addr = %q", cfg.ServerAddr)
@@ -714,11 +714,10 @@ func TestApplyRuntimeConfigDefaultsLoadsModeOnlyWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestApplyRuntimeConfigDefaultsLoadsServerListenAddrs(t *testing.T) {
+func TestApplyRuntimeConfigDefaultsLoadsListenAddrs(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "server.json")
 	configBody := []byte(`{
 		"mode": "server",
-		"listen_addr": "127.0.0.1:19080",
 		"listen_addrs": ["127.0.0.1:19081", "127.0.0.1:19082"]
 	}`)
 	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
@@ -730,7 +729,7 @@ func TestApplyRuntimeConfigDefaultsLoadsServerListenAddrs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.ListenAddr != "" {
-		t.Fatalf("listen addr = %q, want empty when listen_addrs is set", cfg.ListenAddr)
+		t.Fatalf("listen addr = %q, want empty", cfg.ListenAddr)
 	}
 	if got, want := strings.Join(cfg.ListenAddrs, ","), "127.0.0.1:19081,127.0.0.1:19082"; got != want {
 		t.Fatalf("listen addrs = %q, want %q", got, want)
@@ -745,6 +744,23 @@ func TestApplyRuntimeConfigDefaultsLoadsServerListenAddrs(t *testing.T) {
 	}
 	if cfg.ListenAddr != "127.0.0.1:19100" {
 		t.Fatalf("listen addr = %q, want command override", cfg.ListenAddr)
+	}
+}
+
+func TestApplyRuntimeConfigDefaultsRejectsListenAddr(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	configBody := []byte(`{
+		"mode": "client",
+		"listen_addr": "127.0.0.1:19080"
+	}`)
+	if err := os.WriteFile(configPath, configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config{ConfigPath: configPath}
+	err := applyRuntimeConfigDefaults(&cfg)
+	if err == nil || !strings.Contains(err.Error(), "listen_addr is no longer supported") {
+		t.Fatalf("err = %v, want listen_addr unsupported", err)
 	}
 }
 
@@ -821,14 +837,14 @@ func TestScanLocalIPv4WithRetryDoesNotRetryOtherErrors(t *testing.T) {
 func TestApplyModeListenDefault(t *testing.T) {
 	cfg := config{Mode: proxyModeServer}
 	applyModeListenDefault(&cfg)
-	if cfg.ListenAddr != "0.0.0.0:9443" {
-		t.Fatalf("server listen addr = %q", cfg.ListenAddr)
+	if got, want := strings.Join(cfg.ListenAddrs, ","), "0.0.0.0:9443"; got != want {
+		t.Fatalf("server listen addrs = %q, want %q", got, want)
 	}
 
 	cfg = config{Mode: proxyModeClient}
 	applyModeListenDefault(&cfg)
-	if cfg.ListenAddr != defaultConfig().ListenAddr {
-		t.Fatalf("client listen addr = %q", cfg.ListenAddr)
+	if got, want := strings.Join(cfg.ListenAddrs, ","), strings.Join(defaultConfig().ListenAddrs, ","); got != want {
+		t.Fatalf("client listen addrs = %q, want %q", got, want)
 	}
 
 	cfg = config{Mode: proxyModeServer, ListenAddr: "127.0.0.1:19090"}
@@ -844,8 +860,8 @@ func TestApplyModeListenDefault(t *testing.T) {
 	}
 }
 
-func TestServerListenAddrsNormalizesList(t *testing.T) {
-	addrs, err := serverListenAddrs(config{
+func TestConfigListenAddrsNormalizesList(t *testing.T) {
+	addrs, err := configListenAddrs(config{
 		ListenAddrs: []string{" 127.0.0.1:19081 ", "", "127.0.0.1:19081", "[::1]:19082"},
 	})
 	if err != nil {
@@ -855,7 +871,7 @@ func TestServerListenAddrsNormalizesList(t *testing.T) {
 		t.Fatalf("listen addrs = %q, want %q", got, want)
 	}
 
-	addrs, err = serverListenAddrs(config{ListenAddr: "127.0.0.1:19081, [::1]:19082"})
+	addrs, err = configListenAddrs(config{ListenAddr: "127.0.0.1:19081, [::1]:19082"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -936,6 +952,60 @@ func TestRunProxyServerKeepsRunningWhenOneListenAddrFails(t *testing.T) {
 			logs.WriteString(line)
 		case <-deadline:
 			t.Fatalf("log = %q, want %q", logs.String(), wantLog)
+		}
+	}
+	stopProxy(t, cancel, errCh)
+}
+
+func TestRunProxyLocalListensOnMultipleAddresses(t *testing.T) {
+	listenAddrs := []string{reserveTCPAddr(t), reserveTCPAddr(t)}
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runProxy(ctx, config{
+			Mode:        proxyModeLocal,
+			ListenAddrs: listenAddrs,
+			GatewayIP:   "127.0.0.1",
+			GatewayPort: 1,
+			DialTimeout: time.Second,
+			BufferSize:  4096,
+		}, io.Discard)
+	}()
+	for _, listenAddr := range listenAddrs {
+		waitForTCP(t, listenAddr)
+		conn, err := net.DialTimeout("tcp", listenAddr, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stopProxy(t, cancel, errCh)
+}
+
+func TestRunProxyClientListensOnMultipleAddresses(t *testing.T) {
+	listenAddrs := []string{reserveTCPAddr(t), reserveTCPAddr(t)}
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runProxy(ctx, config{
+			Mode:        proxyModeClient,
+			ListenAddrs: listenAddrs,
+			ServerAddr:  "127.0.0.1:1",
+			Token:       "secret",
+			DialTimeout: time.Second,
+			BufferSize:  4096,
+		}, io.Discard)
+	}()
+	for _, listenAddr := range listenAddrs {
+		waitForTCP(t, listenAddr)
+		conn, err := net.DialTimeout("tcp", listenAddr, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
 		}
 	}
 	stopProxy(t, cancel, errCh)

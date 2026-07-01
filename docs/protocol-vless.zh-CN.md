@@ -55,7 +55,7 @@ server:
 ```json
 {
   "mode": "server",
-  "listen_addr": "0.0.0.0:9443",
+  "listen_addrs": ["0.0.0.0:9443"],
   "token": "00000000-0000-4000-8000-000000000000",
   "tunnel_protocol": "vless",
   "tunnel_transport": "raw",
@@ -68,7 +68,7 @@ client:
 ```json
 {
   "mode": "client",
-  "listen_addr": "127.0.0.1:1080",
+  "listen_addrs": ["127.0.0.1:1080"],
   "server_addr": "proxy.example.com:9443",
   "token": "00000000-0000-4000-8000-000000000000",
   "tunnel_protocol": "vless",
@@ -107,7 +107,7 @@ server:
 ```json
 {
   "mode": "server",
-  "listen_addr": "0.0.0.0:443",
+  "listen_addrs": ["0.0.0.0:443"],
   "token": "00000000-0000-4000-8000-000000000000",
   "tunnel_protocol": "vless",
   "tunnel_transport": "raw",
@@ -125,7 +125,7 @@ client:
 ```json
 {
   "mode": "client",
-  "listen_addr": "127.0.0.1:1080",
+  "listen_addrs": ["127.0.0.1:1080"],
   "server_addr": "proxy.example.com:443",
   "token": "00000000-0000-4000-8000-000000000000",
   "tunnel_protocol": "vless",

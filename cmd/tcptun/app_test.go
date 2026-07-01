@@ -65,3 +65,26 @@ func TestHasExplicitConfigPathFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestHasExplicitListenFlag(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "none", args: []string{"server"}, want: false},
+		{name: "long", args: []string{"server", "--listen", "127.0.0.1:1080"}, want: true},
+		{name: "long equals", args: []string{"--listen=127.0.0.1:1080", "server"}, want: true},
+		{name: "short", args: []string{"server", "-l", "127.0.0.1:1080"}, want: true},
+		{name: "short equals", args: []string{"server", "-l=127.0.0.1:1080"}, want: true},
+		{name: "other short", args: []string{"server", "-v"}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := hasExplicitListenFlag(tc.args)
+			if got != tc.want {
+				t.Fatalf("hasExplicitListenFlag(%v) = %v, want %v", tc.args, got, tc.want)
+			}
+		})
+	}
+}

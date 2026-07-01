@@ -74,7 +74,7 @@ bin/tcptun client --config /etc/tcptun/client.json
 | 字段 | 适用模式 | 含义 |
 | --- | --- | --- |
 | `mode` | server/client/local | 运行模式。`server` 监听隧道连接，`client` 本地开 mixed 代理并转发到隧道服务端，`local` 发现网关代理。 |
-| `listen_addr` | server/client/local | 本地监听地址。server 常用 `0.0.0.0:9443`，client/local 常用 `127.0.0.1:1080`。 |
+| `listen_addrs` | server/client/local | 本地监听地址列表。server 可用 `["0.0.0.0:443", "[::]:443"]`，client/local 常用 `["127.0.0.1:1080"]`。 |
 | `server_addr` | client | client 连接的隧道服务端地址，格式为 `host:port`。 |
 | `token` | server/client | 认证材料。不同协议含义不同：native 是共享 token，VLESS/VMess 是 UUID，Trojan 是 password。 |
 | `tunnel_protocol` | server/client | 隧道协议：`native`、`vless`、`vmess`、`trojan`。 |

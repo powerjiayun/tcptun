@@ -11,7 +11,7 @@ import (
 	"pkg.gostartkit.com/cmd"
 )
 
-func buildLocalCommand(cfg *tcptun.Config, upstreamProtocolFlag *string) *cmd.Command {
+func buildLocalCommand(cfg *tcptun.Config, upstreamProtocolFlag *string, listenFlag *string) *cmd.Command {
 	return &cmd.Command{
 		Name:      "local",
 		Aliases:   []string{"l", "loc"},
@@ -28,6 +28,9 @@ func buildLocalCommand(cfg *tcptun.Config, upstreamProtocolFlag *string) *cmd.Co
 				return fmt.Errorf("unexpected args: %v", args)
 			}
 			cfg.Mode = tcptun.ProxyModeLocal
+			if listenFlag != nil {
+				applyListenFlag(cfg, *listenFlag)
+			}
 			if upstreamProtocolFlag != nil && strings.TrimSpace(*upstreamProtocolFlag) != "" {
 				cfg.UpstreamProtocol = *upstreamProtocolFlag
 			} else {

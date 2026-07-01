@@ -108,6 +108,7 @@ func DefaultConfig() Config {
 func defaultConfig() Config {
 	return Config{
 		ListenAddr:         "127.0.0.1:1080",
+		ListenAddrs:        []string{"127.0.0.1:1080"},
 		Mode:               proxyModeLocal,
 		TunnelProtocol:     tunnelProtocolNative,
 		TunnelSecurity:     tunnelSecurityNone,
@@ -132,17 +133,23 @@ func applyModeListenDefault(cfg *config) {
 	if cfg == nil {
 		return
 	}
+	if len(normalizedListenAddrs("", cfg.ListenAddrs)) > 0 {
+		return
+	}
 	if cfg.Mode == proxyModeServer {
-		if strings.TrimSpace(cfg.ListenAddr) != "" || len(cfg.ListenAddrs) > 0 {
+		if strings.TrimSpace(cfg.ListenAddr) != "" {
 			return
 		}
 		cfg.ListenAddr = "0.0.0.0:9443"
+		cfg.ListenAddrs = []string{cfg.ListenAddr}
 		return
 	}
 	if strings.TrimSpace(cfg.ListenAddr) != "" {
+		cfg.ListenAddrs = []string{cfg.ListenAddr}
 		return
 	}
 	cfg.ListenAddr = defaultConfig().ListenAddr
+	cfg.ListenAddrs = []string{cfg.ListenAddr}
 }
 
 func normalizedListenAddrs(listenAddr string, listenAddrs []string) []string {
@@ -178,12 +185,32 @@ func splitCommaSeparated(value string) []string {
 	return result
 }
 
-func serverListenAddrs(cfg config) ([]string, error) {
+func configListenAddrs(cfg config) ([]string, error) {
 	addrs := normalizedListenAddrs(cfg.ListenAddr, cfg.ListenAddrs)
 	if len(addrs) == 0 {
-		return nil, errors.New("server listen address is required")
+		return nil, errors.New("listen address is required")
 	}
 	return addrs, nil
+}
+
+func listenConfigIsUnsetOrDefault(cfg config) bool {
+	addrs := normalizedListenAddrs(cfg.ListenAddr, cfg.ListenAddrs)
+	if len(addrs) == 0 {
+		return true
+	}
+	return stringSlicesEqual(addrs, defaultConfig().ListenAddrs)
+}
+
+func stringSlicesEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 type proxyServer struct {
@@ -345,8 +372,9 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 		return err
 	}
 	applyModeListenDefault(&cfg)
-	if cfg.Mode != proxyModeServer && len(normalizedListenAddrs("", cfg.ListenAddrs)) > 0 {
-		return errors.New("listen_addrs is only supported in server mode")
+	listenAddrs, err := configListenAddrs(cfg)
+	if err != nil {
+		return err
 	}
 	cfg.UpstreamProtocol, err = normalizeUpstreamProtocol(cfg.UpstreamProtocol)
 	if err != nil {
@@ -391,18 +419,6 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 		}
 	}
 
-	listener, err := net.Listen("tcp", cfg.ListenAddr)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			if logErr := logf(log, "close listener: %v\n", err); logErr != nil {
-				return
-			}
-		}
-	}()
-
 	server := &proxyServer{
 		cfg:      cfg,
 		resolver: resolver,
@@ -427,6 +443,87 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 		}
 	}()
 
+	var refreshErr <-chan error
+	if resolver != nil {
+		refreshErr = resolver.start(ctx)
+	}
+	return runProxyOnAddrs(ctx, cfg, server, listenAddrs, refreshErr, log)
+}
+
+func runProxyOnAddrs(ctx context.Context, cfg config, server *proxyServer, listenAddrs []string, refreshErr <-chan error, log io.Writer) error {
+	if len(listenAddrs) == 0 {
+		return errors.New("listen address is required")
+	}
+
+	type listenResult struct {
+		addr string
+		err  error
+	}
+
+	errCh := make(chan listenResult, len(listenAddrs))
+	var wg sync.WaitGroup
+	for _, listenAddr := range listenAddrs {
+		addr := listenAddr
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errCh <- listenResult{addr: addr, err: runProxyOnAddr(ctx, cfg, server, addr, log)}
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(errCh)
+	}()
+
+	var retErr error
+	active := len(listenAddrs)
+	for active > 0 {
+		select {
+		case err := <-refreshErr:
+			if err != nil {
+				return err
+			}
+		case result, ok := <-errCh:
+			if !ok {
+				active = 0
+				break
+			}
+			active--
+			if result.err == nil {
+				continue
+			}
+			if ctx.Err() != nil {
+				if logErr := logf(log, "listener %s stopped after context cancellation: %v\n", result.addr, result.err); logErr != nil {
+					retErr = errors.Join(retErr, logErr)
+				}
+				continue
+			}
+			err := fmt.Errorf("listener %s stopped: %w", result.addr, result.err)
+			retErr = errors.Join(retErr, err)
+			if logErr := logf(log, "%v\n", err); logErr != nil {
+				retErr = errors.Join(retErr, logErr)
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	return retErr
+}
+
+func runProxyOnAddr(ctx context.Context, cfg config, server *proxyServer, listenAddr string, log io.Writer) error {
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			if logErr := logf(log, "close listener: %v\n", err); logErr != nil {
+				return
+			}
+		}
+	}()
+
 	if cfg.Mode == proxyModeClient {
 		if err := logf(log, "listening on %s, forwarding mixed traffic to tunnel server %s\n", listener.Addr(), cfg.ServerAddr); err != nil {
 			return err
@@ -447,20 +544,8 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 		closeErr <- errListenerClosedByContext
 	}()
 
-	var refreshErr <-chan error
-	if resolver != nil {
-		refreshErr = resolver.start(ctx)
-	}
-
 	var tempDelay time.Duration
 	for {
-		select {
-		case err := <-refreshErr:
-			if err != nil {
-				return err
-			}
-		default:
-		}
 		conn, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
