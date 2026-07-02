@@ -161,7 +161,7 @@ func runRawTunnelServer(ctx context.Context, cfg config, log io.Writer) error {
 		reality: reality,
 		dialer: net.Dialer{
 			Timeout:   cfg.DialTimeout,
-			KeepAlive: 30 * time.Second,
+			KeepAlive: cfg.HeartbeatInterval,
 		},
 		log: log,
 	}
@@ -175,12 +175,15 @@ func runRawTunnelServer(ctx context.Context, cfg config, log io.Writer) error {
 	}
 
 	closeErr := make(chan error, 1)
+	var active activeConnTracker
+	defer active.closeAllAndWait()
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			closeErr <- err
 			return
 		}
+		active.closeAll()
 		closeErr <- errListenerClosedByContext
 	}()
 
@@ -200,20 +203,24 @@ func runRawTunnelServer(ctx context.Context, cfg config, log io.Writer) error {
 			}
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
-					tempDelay = 5 * time.Millisecond
+					tempDelay = cfg.RetryInitialInterval
 				} else {
 					tempDelay *= 2
 				}
-				if max := time.Second; tempDelay > max {
-					tempDelay = max
+				if tempDelay > cfg.RetryMaxInterval {
+					tempDelay = cfg.RetryMaxInterval
 				}
-				time.Sleep(tempDelay)
+				if err := sleepContext(ctx, tempDelay); err != nil {
+					return nil
+				}
 				continue
 			}
 			return err
 		}
 		tempDelay = 0
-		go server.handleTunnelConn(ctx, conn)
+		active.Go(conn, func() {
+			server.handleTunnelConn(ctx, conn)
+		})
 	}
 }
 
@@ -233,7 +240,7 @@ func (s *proxyServer) handleTunnelConnError(ctx context.Context, conn net.Conn) 
 			}
 		}
 	}()
-	if err := tuneTCP(conn); err != nil {
+	if err := tuneTCP(conn, s.cfg.HeartbeatInterval); err != nil {
 		return fmt.Errorf("tune tunnel client tcp: %w", err)
 	}
 	if s.reality != nil {
@@ -369,7 +376,7 @@ func (s *proxyServer) handleTunnelTCP(ctx context.Context, conn net.Conn, reader
 		return nil
 	}
 	defer closeConnWithLog(outbound, s.log, "tunnel tcp target "+target)
-	if err := tuneTCP(outbound); err != nil {
+	if err := tuneTCP(outbound, s.cfg.HeartbeatInterval); err != nil {
 		if writeErr := writeTunnelResponse(conn, tunnelStatusError, err.Error()); writeErr != nil {
 			return errors.Join(err, writeErr)
 		}
@@ -405,7 +412,7 @@ func (s *proxyServer) handleTunnelUDP(ctx context.Context, conn net.Conn, reader
 	go s.tunnelUDPClientToRemote(ctx, reader, udpConn, done)
 	go s.tunnelUDPRemoteToClient(ctx, conn, udpConn, &writeMu, done)
 
-	if err := <-done; err != nil && !isExpectedNetworkClose(err) && !errors.Is(err, net.ErrClosed) {
+	if err := waitUDPProxyDone(ctx, conn, udpConn, done); err != nil && !isExpectedNetworkClose(err) && !errors.Is(err, net.ErrClosed) {
 		return err
 	}
 	return nil
@@ -441,6 +448,10 @@ func (s *proxyServer) tunnelUDPClientToRemote(ctx context.Context, reader *bufio
 			done <- err
 			return
 		}
+		if err := refreshUDPReadDeadline(udpConn, s.cfg.UDPSessionTimeout); err != nil {
+			done <- err
+			return
+		}
 		if s.cfg.Verbose {
 			if err := logf(s.log, "tunnel udp %s\n", targetText); err != nil {
 				done <- err
@@ -457,8 +468,16 @@ func (s *proxyServer) tunnelUDPClientToRemote(ctx context.Context, reader *bufio
 func (s *proxyServer) tunnelUDPRemoteToClient(ctx context.Context, conn net.Conn, udpConn *net.UDPConn, writeMu *sync.Mutex, done chan<- error) {
 	buf := make([]byte, udpBufferSize)
 	for {
+		if err := refreshUDPReadDeadline(udpConn, s.cfg.UDPSessionTimeout); err != nil {
+			done <- err
+			return
+		}
 		n, addr, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
+			if isNetworkTimeout(err) {
+				done <- nil
+				return
+			}
 			done <- err
 			return
 		}
@@ -489,7 +508,7 @@ func (s *proxyServer) connectViaTunnelTCP(ctx context.Context, req socksRequest)
 	if err != nil {
 		return nil, target, err
 	}
-	if err := tuneTCP(conn); err != nil {
+	if err := tuneTCP(conn, s.cfg.HeartbeatInterval); err != nil {
 		return nil, target, closeAfterError(conn, err)
 	}
 	if err := writeTunnelRequest(conn, tunnelRequest{
@@ -515,7 +534,7 @@ func (s *proxyServer) connectViaTunnelUDP(ctx context.Context) (*nativeUDPUpstre
 	if err != nil {
 		return nil, err
 	}
-	if err := tuneTCP(conn); err != nil {
+	if err := tuneTCP(conn, s.cfg.HeartbeatInterval); err != nil {
 		return nil, closeAfterError(conn, err)
 	}
 	reader := bufio.NewReader(conn)
@@ -585,7 +604,7 @@ func (s *proxyServer) tunnelMuxSession(ctx context.Context) (*muxSession, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := tuneTCP(conn); err != nil {
+	if err := tuneTCP(conn, s.cfg.HeartbeatInterval); err != nil {
 		return nil, closeAfterError(conn, err)
 	}
 	reader := bufio.NewReader(conn)
@@ -599,6 +618,7 @@ func (s *proxyServer) tunnelMuxSession(ctx context.Context) (*muxSession, error)
 		return nil, closeAfterError(conn, err)
 	}
 	s.mux.session = newMuxSession(conn, reader, true)
+	go s.closeIdleTunnelMuxSession(s.mux.session)
 	return s.mux.session, nil
 }
 
@@ -612,6 +632,27 @@ func (s *proxyServer) resetTunnelMuxSession(session *muxSession) {
 			}
 		}
 		s.mux.session = nil
+	}
+}
+
+func (s *proxyServer) closeIdleTunnelMuxSession(session *muxSession) {
+	timeout := s.cfg.ConnectionIdleTimeout
+	if session == nil || timeout <= 0 {
+		return
+	}
+	for {
+		delay := session.idleDelay(time.Now(), timeout)
+		if delay <= 0 {
+			s.resetTunnelMuxSession(session)
+			return
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-session.done:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 	}
 }
 

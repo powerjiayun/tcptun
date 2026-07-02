@@ -65,7 +65,7 @@ func (s *proxyServer) handleProtocolTunnelUDP(ctx context.Context, conn net.Conn
 	go s.protocolUDPClientToRemote(ctx, reader, req, udpConn, done)
 	go s.protocolUDPRemoteToClient(ctx, conn, req, udpConn, &writeMu, done)
 
-	if err := <-done; err != nil && !isExpectedNetworkClose(err) && !errors.Is(err, net.ErrClosed) {
+	if err := waitUDPProxyDone(ctx, conn, udpConn, done); err != nil && !isExpectedNetworkClose(err) && !errors.Is(err, net.ErrClosed) {
 		return err
 	}
 	return nil
@@ -99,7 +99,7 @@ func (s *proxyServer) handleProtocolTunnelMux(ctx context.Context, conn net.Conn
 	go s.vlessXUDPClientToRemote(ctx, clientReader, udpConn, done)
 	go s.vlessXUDPRemoteToClient(ctx, clientConn, udpConn, &writeMu, done)
 
-	if err := <-done; err != nil && !isExpectedNetworkClose(err) && !errors.Is(err, net.ErrClosed) {
+	if err := waitUDPProxyDone(ctx, clientConn, udpConn, done); err != nil && !isExpectedNetworkClose(err) && !errors.Is(err, net.ErrClosed) {
 		return err
 	}
 	return nil
@@ -146,6 +146,10 @@ func (s *proxyServer) vlessXUDPClientToRemote(ctx context.Context, reader io.Rea
 			done <- err
 			return
 		}
+		if err := refreshUDPReadDeadline(udpConn, s.cfg.UDPSessionTimeout); err != nil {
+			done <- err
+			return
+		}
 		if s.cfg.Verbose {
 			if err := logf(s.log, "vless xudp %s\n", targetText); err != nil {
 				done <- err
@@ -162,8 +166,16 @@ func (s *proxyServer) vlessXUDPClientToRemote(ctx context.Context, reader io.Rea
 func (s *proxyServer) vlessXUDPRemoteToClient(ctx context.Context, conn net.Conn, udpConn *net.UDPConn, writeMu *sync.Mutex, done chan<- error) {
 	buf := make([]byte, udpBufferSize)
 	for {
+		if err := refreshUDPReadDeadline(udpConn, s.cfg.UDPSessionTimeout); err != nil {
+			done <- err
+			return
+		}
 		n, addr, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
+			if isNetworkTimeout(err) {
+				done <- nil
+				return
+			}
 			done <- err
 			return
 		}
@@ -227,6 +239,10 @@ func (s *proxyServer) protocolUDPClientToRemote(ctx context.Context, reader *buf
 			done <- err
 			return
 		}
+		if err := refreshUDPReadDeadline(udpConn, s.cfg.UDPSessionTimeout); err != nil {
+			done <- err
+			return
+		}
 		if s.cfg.Verbose {
 			if err := logf(s.log, "%s udp %s\n", s.cfg.TunnelProtocol, targetText); err != nil {
 				done <- err
@@ -248,8 +264,16 @@ func (s *proxyServer) protocolUDPRemoteToClient(ctx context.Context, conn net.Co
 	}
 	buf := make([]byte, udpBufferSize)
 	for {
+		if err := refreshUDPReadDeadline(udpConn, s.cfg.UDPSessionTimeout); err != nil {
+			done <- err
+			return
+		}
 		n, addr, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
+			if isNetworkTimeout(err) {
+				done <- nil
+				return
+			}
 			done <- err
 			return
 		}
@@ -277,7 +301,7 @@ func (s *proxyServer) connectViaProtocolTunnelUDP(ctx context.Context, host stri
 	if err != nil {
 		return nil, err
 	}
-	if err := tuneTCP(conn); err != nil {
+	if err := tuneTCP(conn, s.cfg.HeartbeatInterval); err != nil {
 		return nil, closeAfterError(conn, err)
 	}
 	reader := bufio.NewReader(conn)

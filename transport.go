@@ -166,7 +166,7 @@ func runHTTPTunnelServerOnAddr(ctx context.Context, cfg config, log io.Writer) e
 		cfg: cfg,
 		dialer: net.Dialer{
 			Timeout:   cfg.DialTimeout,
-			KeepAlive: 30 * time.Second,
+			KeepAlive: cfg.HeartbeatInterval,
 		},
 		log: log,
 	}

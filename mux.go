@@ -43,6 +43,7 @@ type muxSession struct {
 	done       chan struct{}
 	err        error
 	nextID     uint32
+	lastActive time.Time
 	closeOnce  sync.Once
 	localAddr  net.Addr
 	remoteAddr net.Addr
@@ -73,6 +74,7 @@ func newMuxSession(conn net.Conn, reader io.Reader, client bool) *muxSession {
 		acceptCh:   make(chan *muxStream, 64),
 		done:       make(chan struct{}),
 		nextID:     nextID,
+		lastActive: time.Now(),
 		localAddr:  conn.LocalAddr(),
 		remoteAddr: conn.RemoteAddr(),
 	}
@@ -114,6 +116,7 @@ func (s *muxSession) registerLocalStream() (*muxStream, error) {
 	s.nextID += 2
 	stream := newMuxStream(s, id)
 	s.streams[id] = stream
+	s.lastActive = time.Now()
 	return stream, nil
 }
 
@@ -163,6 +166,7 @@ func (s *muxSession) readLoop() {
 			s.closeWithError(err)
 			return
 		}
+		s.touch()
 		if err := s.handleFrame(frameType, streamID, payload); err != nil {
 			s.closeWithError(err)
 			return
@@ -214,6 +218,7 @@ func (s *muxSession) acceptRemoteStream(streamID uint32) error {
 	}
 	stream := newMuxStream(s, streamID)
 	s.streams[streamID] = stream
+	s.lastActive = time.Now()
 	s.mu.Unlock()
 
 	select {
@@ -234,6 +239,7 @@ func (s *muxSession) stream(streamID uint32) *muxStream {
 func (s *muxSession) removeStream(streamID uint32) {
 	s.mu.Lock()
 	delete(s.streams, streamID)
+	s.lastActive = time.Now()
 	s.mu.Unlock()
 }
 
@@ -253,13 +259,34 @@ func (s *muxSession) writeFrame(frameType byte, streamID uint32, payload []byte)
 		return err
 	}
 	if len(payload) == 0 {
+		s.touch()
 		return nil
 	}
 	if err := writeAll(s.conn, payload); err != nil {
 		s.closeWithError(err)
 		return err
 	}
+	s.touch()
 	return nil
+}
+
+func (s *muxSession) touch() {
+	s.mu.Lock()
+	s.lastActive = time.Now()
+	s.mu.Unlock()
+}
+
+func (s *muxSession) idleDelay(now time.Time, timeout time.Duration) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.streams) > 0 {
+		return timeout
+	}
+	idle := now.Sub(s.lastActive)
+	if idle >= timeout {
+		return 0
+	}
+	return timeout - idle
 }
 
 func readMuxFrame(reader io.Reader) (byte, uint32, []byte, error) {

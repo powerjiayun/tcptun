@@ -347,7 +347,7 @@ func (s *proxyServer) connectDirectTCP(ctx context.Context, cacheKey string, hos
 		s.direct.markUpstreamOnly(cacheKey, host)
 		return nil, true, err
 	}
-	if err := tuneTCP(conn); err != nil {
+	if err := tuneTCP(conn, s.cfg.HeartbeatInterval); err != nil {
 		closeErr := conn.Close()
 		s.direct.markUpstreamOnly(cacheKey, host)
 		if closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {

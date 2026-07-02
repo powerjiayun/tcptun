@@ -53,7 +53,10 @@ const (
 	tunnelSecurityReality  = TunnelSecurityReality
 )
 
-var errListenerClosedByContext = errors.New("listener closed after context cancellation")
+var (
+	errListenerClosedByContext = errors.New("listener closed after context cancellation")
+	logMu                      sync.Mutex
+)
 
 type Config struct {
 	ListenAddr             string
@@ -95,6 +98,11 @@ type Config struct {
 	RefreshInterval        time.Duration
 	ScanTimeout            time.Duration
 	ScanRetryInterval      time.Duration
+	HeartbeatInterval      time.Duration
+	ConnectionIdleTimeout  time.Duration
+	UDPSessionTimeout      time.Duration
+	RetryInitialInterval   time.Duration
+	RetryMaxInterval       time.Duration
 	ScanWorkers            int
 	BufferSize             int
 	Verbose                bool
@@ -108,25 +116,30 @@ func DefaultConfig() Config {
 
 func defaultConfig() Config {
 	return Config{
-		ListenAddr:         "127.0.0.1:1080",
-		ListenAddrs:        []string{"127.0.0.1:1080"},
-		Mode:               proxyModeLocal,
-		TunnelProtocol:     tunnelProtocolNative,
-		TunnelSecurity:     tunnelSecurityNone,
-		TunnelTransport:    tunnelTransportRaw,
-		TunnelPath:         "/proxy",
-		TunnelMux:          true,
-		GatewayPort:        1080,
-		UpstreamProtocol:   upstreamProtocolSOCKS5,
-		ConfigPath:         "config.json",
-		RouteConfigPath:    "route.json",
-		DialTimeout:        5 * time.Second,
-		DirectProbeTimeout: 500 * time.Millisecond,
-		RefreshInterval:    5 * time.Second,
-		ScanTimeout:        250 * time.Millisecond,
-		ScanRetryInterval:  5 * time.Second,
-		ScanWorkers:        max(64, runtime.GOMAXPROCS(0)*32),
-		BufferSize:         32 * 1024,
+		ListenAddr:            "127.0.0.1:1080",
+		ListenAddrs:           []string{"127.0.0.1:1080"},
+		Mode:                  proxyModeLocal,
+		TunnelProtocol:        tunnelProtocolNative,
+		TunnelSecurity:        tunnelSecurityNone,
+		TunnelTransport:       tunnelTransportRaw,
+		TunnelPath:            "/proxy",
+		TunnelMux:             true,
+		GatewayPort:           1080,
+		UpstreamProtocol:      upstreamProtocolSOCKS5,
+		ConfigPath:            "config.json",
+		RouteConfigPath:       "route.json",
+		DialTimeout:           5 * time.Second,
+		DirectProbeTimeout:    500 * time.Millisecond,
+		RefreshInterval:       5 * time.Second,
+		ScanTimeout:           250 * time.Millisecond,
+		ScanRetryInterval:     5 * time.Second,
+		HeartbeatInterval:     2 * time.Minute,
+		ConnectionIdleTimeout: 10 * time.Minute,
+		UDPSessionTimeout:     2 * time.Minute,
+		RetryInitialInterval:  200 * time.Millisecond,
+		RetryMaxInterval:      30 * time.Second,
+		ScanWorkers:           max(64, runtime.GOMAXPROCS(0)*32),
+		BufferSize:            32 * 1024,
 	}
 }
 
@@ -370,6 +383,39 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 	if cfg.ScanRetryInterval == 0 {
 		cfg.ScanRetryInterval = defaultConfig().ScanRetryInterval
 	}
+	if cfg.HeartbeatInterval < 0 {
+		return fmt.Errorf("invalid heartbeat interval: %s", cfg.HeartbeatInterval)
+	}
+	if cfg.HeartbeatInterval == 0 {
+		cfg.HeartbeatInterval = defaultConfig().HeartbeatInterval
+	}
+	if cfg.ConnectionIdleTimeout < 0 {
+		return fmt.Errorf("invalid connection idle timeout: %s", cfg.ConnectionIdleTimeout)
+	}
+	if cfg.ConnectionIdleTimeout == 0 {
+		cfg.ConnectionIdleTimeout = defaultConfig().ConnectionIdleTimeout
+	}
+	if cfg.UDPSessionTimeout < 0 {
+		return fmt.Errorf("invalid udp session timeout: %s", cfg.UDPSessionTimeout)
+	}
+	if cfg.UDPSessionTimeout == 0 {
+		cfg.UDPSessionTimeout = defaultConfig().UDPSessionTimeout
+	}
+	if cfg.RetryInitialInterval < 0 {
+		return fmt.Errorf("invalid retry initial interval: %s", cfg.RetryInitialInterval)
+	}
+	if cfg.RetryInitialInterval == 0 {
+		cfg.RetryInitialInterval = defaultConfig().RetryInitialInterval
+	}
+	if cfg.RetryMaxInterval < 0 {
+		return fmt.Errorf("invalid retry max interval: %s", cfg.RetryMaxInterval)
+	}
+	if cfg.RetryMaxInterval == 0 {
+		cfg.RetryMaxInterval = defaultConfig().RetryMaxInterval
+	}
+	if cfg.RetryInitialInterval > cfg.RetryMaxInterval {
+		return fmt.Errorf("retry initial interval %s exceeds max interval %s", cfg.RetryInitialInterval, cfg.RetryMaxInterval)
+	}
 	if cfg.ScanWorkers <= 0 {
 		cfg.ScanWorkers = defaultConfig().ScanWorkers
 	}
@@ -434,7 +480,7 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 		resolver: resolver,
 		dialer: net.Dialer{
 			Timeout:   cfg.DialTimeout,
-			KeepAlive: 30 * time.Second,
+			KeepAlive: cfg.HeartbeatInterval,
 		},
 		direct: newDirectCache(),
 		sticky: newUpstreamSticky(),
@@ -546,12 +592,15 @@ func runProxyOnAddr(ctx context.Context, cfg config, server *proxyServer, listen
 	}
 
 	closeErr := make(chan error, 1)
+	var active activeConnTracker
+	defer active.closeAllAndWait()
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			closeErr <- err
 			return
 		}
+		active.closeAll()
 		closeErr <- errListenerClosedByContext
 	}()
 
@@ -571,20 +620,24 @@ func runProxyOnAddr(ctx context.Context, cfg config, server *proxyServer, listen
 			}
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
-					tempDelay = 5 * time.Millisecond
+					tempDelay = cfg.RetryInitialInterval
 				} else {
 					tempDelay *= 2
 				}
-				if max := time.Second; tempDelay > max {
-					tempDelay = max
+				if tempDelay > cfg.RetryMaxInterval {
+					tempDelay = cfg.RetryMaxInterval
 				}
-				time.Sleep(tempDelay)
+				if err := sleepContext(ctx, tempDelay); err != nil {
+					return nil
+				}
 				continue
 			}
 			return err
 		}
 		tempDelay = 0
-		go server.handle(ctx, conn)
+		active.Go(conn, func() {
+			server.handle(ctx, conn)
+		})
 	}
 }
 
@@ -865,6 +918,7 @@ func scanLocalIPv4WithRetry(ctx context.Context, cfg config, gatewayHint net.IP,
 	if scanner == nil {
 		return nil, errors.New("local IPv4 scanner is nil")
 	}
+	retry := newRetryBackoff(cfg.ScanRetryInterval, max(cfg.ScanRetryInterval, cfg.RetryMaxInterval))
 	for {
 		reachable, err := scanner(ctx, cfg.GatewayPort, cfg.ScanTimeout, cfg.ScanWorkers, gatewayHint)
 		if err == nil {
@@ -873,15 +927,50 @@ func scanLocalIPv4WithRetry(ctx context.Context, cfg config, gatewayHint net.IP,
 		if !errors.Is(err, errReachableProxyNotFound) {
 			return nil, err
 		}
+		delay := retry.Next()
 		if cfg.Verbose {
-			if logErr := logf(log, "scan local IPv4 networks found no reachable proxy; retrying in %s\n", cfg.ScanRetryInterval); logErr != nil {
+			if logErr := logf(log, "scan local IPv4 networks found no reachable proxy; retrying in %s\n", delay); logErr != nil {
 				return nil, logErr
 			}
 		}
-		if err := sleepContext(ctx, cfg.ScanRetryInterval); err != nil {
+		if err := sleepContext(ctx, delay); err != nil {
 			return nil, err
 		}
 	}
+}
+
+type retryBackoff struct {
+	next time.Duration
+	max  time.Duration
+}
+
+func newRetryBackoff(initial time.Duration, maxDelay time.Duration) *retryBackoff {
+	if initial <= 0 {
+		initial = defaultConfig().RetryInitialInterval
+	}
+	if maxDelay <= 0 {
+		maxDelay = initial
+	}
+	if initial > maxDelay {
+		initial = maxDelay
+	}
+	return &retryBackoff{next: initial, max: maxDelay}
+}
+
+func (b *retryBackoff) Next() time.Duration {
+	if b == nil {
+		return 0
+	}
+	delay := b.next
+	if delay <= 0 {
+		delay = defaultConfig().RetryInitialInterval
+	}
+	next := delay * 2
+	if next < delay || next > b.max {
+		next = b.max
+	}
+	b.next = next
+	return delay
 }
 
 func sleepContext(ctx context.Context, d time.Duration) error {
@@ -1165,7 +1254,7 @@ func (s *proxyServer) handleConn(ctx context.Context, client net.Conn) error {
 			}
 		}
 	}()
-	if err := tuneTCP(client); err != nil {
+	if err := tuneTCP(client, s.cfg.HeartbeatInterval); err != nil {
 		return fmt.Errorf("tune client tcp: %w", err)
 	}
 
@@ -1211,7 +1300,7 @@ func (s *proxyServer) connectUpstreamRawTarget(ctx context.Context, target strin
 		s.resolver.recordFailure(target)
 		return nil, fmt.Errorf("%s: %w", target, err)
 	}
-	if err := tuneTCP(upstream); err != nil {
+	if err := tuneTCP(upstream, s.cfg.HeartbeatInterval); err != nil {
 		s.resolver.recordFailure(target)
 		if closeErr := upstream.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
 			return nil, fmt.Errorf("%s: %w", target, errors.Join(fmt.Errorf("tune upstream tcp: %w", err), fmt.Errorf("close upstream after tune failure: %w", closeErr)))
@@ -1228,8 +1317,8 @@ func (s *proxyServer) bridge(upstream net.Conn, client net.Conn, clientReader io
 
 func (s *proxyServer) bridgeWithReaders(upstream net.Conn, client net.Conn, upstreamReader io.Reader, clientReader io.Reader) error {
 	done := make(chan error, 2)
-	go s.copyAndClose(upstream, clientReader, done)
-	go s.copyAndClose(client, upstreamReader, done)
+	go s.copyAndClose(upstream, idleReader(client, clientReader, s.cfg.ConnectionIdleTimeout), done)
+	go s.copyAndClose(client, idleReader(upstream, upstreamReader, s.cfg.ConnectionIdleTimeout), done)
 	if err := <-done; err != nil && !isExpectedNetworkClose(err) {
 		return err
 	}
@@ -1244,16 +1333,110 @@ func (s *proxyServer) copyAndClose(dst net.Conn, src io.Reader, done chan<- erro
 	done <- errors.Join(copyErr, closeErr)
 }
 
-func tuneTCP(conn net.Conn) error {
+func tuneTCP(conn net.Conn, keepAliveInterval time.Duration) error {
 	tcp, ok := conn.(*net.TCPConn)
 	if !ok {
 		return nil
 	}
-	return errors.Join(
-		tcp.SetNoDelay(true),
-		tcp.SetKeepAlive(true),
-		tcp.SetKeepAlivePeriod(30*time.Second),
-	)
+	if keepAliveInterval <= 0 {
+		return tcp.SetNoDelay(true)
+	}
+	return errors.Join(tcp.SetNoDelay(true), tcp.SetKeepAlive(true), tcp.SetKeepAlivePeriod(keepAliveInterval))
+}
+
+type readDeadlineReader struct {
+	conn    net.Conn
+	reader  io.Reader
+	timeout time.Duration
+}
+
+type activeConnTracker struct {
+	mu    sync.Mutex
+	wg    sync.WaitGroup
+	conns map[net.Conn]struct{}
+}
+
+func (t *activeConnTracker) Go(conn net.Conn, fn func()) {
+	t.mu.Lock()
+	if t.conns == nil {
+		t.conns = make(map[net.Conn]struct{})
+	}
+	t.conns[conn] = struct{}{}
+	t.wg.Add(1)
+	t.mu.Unlock()
+
+	go func() {
+		defer func() {
+			t.mu.Lock()
+			delete(t.conns, conn)
+			t.mu.Unlock()
+			t.wg.Done()
+		}()
+		fn()
+	}()
+}
+
+func (t *activeConnTracker) closeAll() {
+	t.mu.Lock()
+	conns := make([]net.Conn, 0, len(t.conns))
+	for conn := range t.conns {
+		conns = append(conns, conn)
+	}
+	t.mu.Unlock()
+	for _, conn := range conns {
+		closeConnQuiet(conn)
+	}
+}
+
+func (t *activeConnTracker) closeAllAndWait() {
+	t.closeAll()
+	t.wg.Wait()
+}
+
+func idleReader(conn net.Conn, reader io.Reader, timeout time.Duration) io.Reader {
+	if conn == nil || reader == nil || timeout <= 0 {
+		return reader
+	}
+	return readDeadlineReader{conn: conn, reader: reader, timeout: timeout}
+}
+
+func (r readDeadlineReader) Read(p []byte) (int, error) {
+	if err := r.conn.SetReadDeadline(time.Now().Add(r.timeout)); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
+}
+
+func refreshUDPReadDeadline(conn *net.UDPConn, timeout time.Duration) error {
+	if conn == nil || timeout <= 0 {
+		return nil
+	}
+	return conn.SetReadDeadline(time.Now().Add(timeout))
+}
+
+func waitUDPProxyDone(ctx context.Context, conn net.Conn, udpConn *net.UDPConn, done <-chan error) error {
+	var err error
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	closeConnQuiet(udpConn)
+	closeConnQuiet(conn)
+
+	timer := time.NewTimer(time.Second)
+	select {
+	case secondErr := <-done:
+		err = errors.Join(err, secondErr)
+	case <-timer.C:
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	return err
 }
 
 func closeWrite(conn net.Conn) error {
@@ -1263,7 +1446,16 @@ func closeWrite(conn net.Conn) error {
 	return conn.Close()
 }
 
+func closeConnQuiet(conn net.Conn) {
+	if conn == nil {
+		return
+	}
+	_ = conn.Close()
+}
+
 func logf(w io.Writer, format string, args ...any) error {
+	logMu.Lock()
+	defer logMu.Unlock()
 	_, err := fmt.Fprintf(w, format, args...)
 	return err
 }
@@ -1324,8 +1516,16 @@ func isExpectedNetworkClose(err error) bool {
 	if err == nil {
 		return true
 	}
+	if isNetworkTimeout(err) {
+		return true
+	}
 	return errors.Is(err, net.ErrClosed) ||
 		errors.Is(err, io.EOF) ||
 		errors.Is(err, syscall.EPIPE) ||
 		errors.Is(err, syscall.ECONNRESET)
+}
+
+func isNetworkTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }

@@ -129,9 +129,20 @@ func (r *udpRelay) run(ctx context.Context, controlReader *bufio.Reader) error {
 func (r *udpRelay) loop(ctx context.Context) error {
 	buf := make([]byte, udpBufferSize)
 	for {
+		if err := refreshUDPReadDeadline(r.conn, r.server.cfg.UDPSessionTimeout); err != nil {
+			return err
+		}
 		n, addr, err := r.conn.ReadFromUDP(buf)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
+				return nil
+			}
+			if isNetworkTimeout(err) {
+				if r.server.cfg.Verbose {
+					if logErr := logf(r.server.log, "udp associate idle for %s; closing session\n", r.server.cfg.UDPSessionTimeout); logErr != nil {
+						return logErr
+					}
+				}
 				return nil
 			}
 			return err

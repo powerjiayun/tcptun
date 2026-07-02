@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	xreality "github.com/xtls/reality"
 )
@@ -63,7 +62,7 @@ func buildRealityServerConfig(cfg config) (*xreality.Config, error) {
 	}
 	dialer := net.Dialer{
 		Timeout:   cfg.DialTimeout,
-		KeepAlive: 30 * time.Second,
+		KeepAlive: cfg.HeartbeatInterval,
 	}
 	return &xreality.Config{
 		DialContext:            dialer.DialContext,

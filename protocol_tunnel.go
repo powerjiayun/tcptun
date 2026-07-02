@@ -113,7 +113,7 @@ func (s *proxyServer) handleProtocolTunnelTCP(ctx context.Context, conn net.Conn
 		return err
 	}
 	defer closeConnWithLog(outbound, s.log, "protocol tunnel tcp target "+target)
-	if err := tuneTCP(outbound); err != nil {
+	if err := tuneTCP(outbound, s.cfg.HeartbeatInterval); err != nil {
 		return err
 	}
 	if s.cfg.TunnelProtocol == tunnelProtocolVMess {
@@ -182,7 +182,7 @@ func (s *proxyServer) connectViaProtocolTunnelTCP(ctx context.Context, req socks
 	if err != nil {
 		return nil, target, err
 	}
-	if err := tuneTCP(conn); err != nil {
+	if err := tuneTCP(conn, s.cfg.HeartbeatInterval); err != nil {
 		return nil, target, closeAfterError(conn, err)
 	}
 	var vmessSession *vmessSession

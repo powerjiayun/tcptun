@@ -55,6 +55,11 @@ type runtimeConfigFile struct {
 	UpstreamSOCKS5Password string         `json:"upstream_socks5_password,omitempty"`
 	DirectProbeTimeout     configDuration `json:"direct_probe_timeout,omitempty"`
 	ScanRetryInterval      configDuration `json:"scan_retry_interval,omitempty"`
+	HeartbeatInterval      configDuration `json:"heartbeat_interval,omitempty"`
+	ConnectionIdleTimeout  configDuration `json:"connection_idle_timeout,omitempty"`
+	UDPSessionTimeout      configDuration `json:"udp_session_timeout,omitempty"`
+	RetryInitialInterval   configDuration `json:"retry_initial_interval,omitempty"`
+	RetryMaxInterval       configDuration `json:"retry_max_interval,omitempty"`
 }
 
 type configDuration struct {
@@ -257,6 +262,21 @@ func applyRuntimeConfigDefaults(cfg *config) error {
 	}
 	if fileCfg.ScanRetryInterval.set && (cfg.ScanRetryInterval <= 0 || cfg.ScanRetryInterval == DefaultConfig().ScanRetryInterval) {
 		cfg.ScanRetryInterval = fileCfg.ScanRetryInterval.value
+	}
+	if fileCfg.HeartbeatInterval.set && (cfg.HeartbeatInterval <= 0 || cfg.HeartbeatInterval == DefaultConfig().HeartbeatInterval) {
+		cfg.HeartbeatInterval = fileCfg.HeartbeatInterval.value
+	}
+	if fileCfg.ConnectionIdleTimeout.set && (cfg.ConnectionIdleTimeout <= 0 || cfg.ConnectionIdleTimeout == DefaultConfig().ConnectionIdleTimeout) {
+		cfg.ConnectionIdleTimeout = fileCfg.ConnectionIdleTimeout.value
+	}
+	if fileCfg.UDPSessionTimeout.set && (cfg.UDPSessionTimeout <= 0 || cfg.UDPSessionTimeout == DefaultConfig().UDPSessionTimeout) {
+		cfg.UDPSessionTimeout = fileCfg.UDPSessionTimeout.value
+	}
+	if fileCfg.RetryInitialInterval.set && (cfg.RetryInitialInterval <= 0 || cfg.RetryInitialInterval == DefaultConfig().RetryInitialInterval) {
+		cfg.RetryInitialInterval = fileCfg.RetryInitialInterval.value
+	}
+	if fileCfg.RetryMaxInterval.set && (cfg.RetryMaxInterval <= 0 || cfg.RetryMaxInterval == DefaultConfig().RetryMaxInterval) {
+		cfg.RetryMaxInterval = fileCfg.RetryMaxInterval.value
 	}
 	return nil
 }
