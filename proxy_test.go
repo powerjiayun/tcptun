@@ -3274,6 +3274,34 @@ func reserveTCPAddr(t *testing.T) string {
 	return addr
 }
 
+func TestActiveConnTrackerCloseAllAndWaitTimesOut(t *testing.T) {
+	client, server := net.Pipe()
+	defer closeConnQuiet(client)
+	defer closeConnQuiet(server)
+
+	var tracker activeConnTracker
+	started := make(chan struct{})
+	release := make(chan struct{})
+	tracker.Go(server, func() {
+		close(started)
+		<-release
+	})
+	<-started
+
+	start := time.Now()
+	if tracker.closeAllAndWait(20 * time.Millisecond) {
+		t.Fatal("closeAllAndWait returned true while handler was still running")
+	}
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("closeAllAndWait took %s, want quick timeout", elapsed)
+	}
+
+	close(release)
+	if !tracker.closeAllAndWait(time.Second) {
+		t.Fatal("closeAllAndWait timed out after handler was released")
+	}
+}
+
 func dialSocks5UDPAssociate(t *testing.T, proxyAddr string) (net.Conn, *net.UDPAddr) {
 	t.Helper()
 	control, err := net.DialTimeout("tcp", proxyAddr, time.Second)

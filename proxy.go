@@ -58,6 +58,8 @@ var (
 	logMu                      sync.Mutex
 )
 
+const activeConnShutdownTimeout = time.Second
+
 type Config struct {
 	ListenAddr             string
 	ListenAddrs            []string
@@ -600,7 +602,14 @@ func runProxyOnAddr(ctx context.Context, cfg config, server *proxyServer, listen
 
 	closeErr := make(chan error, 1)
 	var active activeConnTracker
-	defer active.closeAllAndWait()
+	defer func() {
+		if active.closeAllAndWait(activeConnShutdownTimeout) {
+			return
+		}
+		if logErr := logf(log, "timed out waiting for active proxy connections to close\n"); logErr != nil {
+			return
+		}
+	}()
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
@@ -1395,9 +1404,32 @@ func (t *activeConnTracker) closeAll() {
 	}
 }
 
-func (t *activeConnTracker) closeAllAndWait() {
+func (t *activeConnTracker) closeAllAndWait(timeout time.Duration) bool {
 	t.closeAll()
-	t.wg.Wait()
+	if timeout <= 0 {
+		t.wg.Wait()
+		return true
+	}
+	done := make(chan struct{})
+	go func() {
+		t.wg.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(timeout)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 func idleReader(conn net.Conn, reader io.Reader, timeout time.Duration) io.Reader {

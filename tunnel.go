@@ -179,7 +179,14 @@ func runRawTunnelServer(ctx context.Context, cfg config, log io.Writer) error {
 
 	closeErr := make(chan error, 1)
 	var active activeConnTracker
-	defer active.closeAllAndWait()
+	defer func() {
+		if active.closeAllAndWait(activeConnShutdownTimeout) {
+			return
+		}
+		if logErr := logf(log, "timed out waiting for active tunnel connections to close\n"); logErr != nil {
+			return
+		}
+	}()
 	go func() {
 		<-ctx.Done()
 		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
