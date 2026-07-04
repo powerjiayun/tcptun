@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"syscall"
 	"testing"
+	"time"
 
 	"sskycn/tcptun"
 )
@@ -86,5 +88,60 @@ func TestHasExplicitListenFlag(t *testing.T) {
 				t.Fatalf("hasExplicitListenFlag(%v) = %v, want %v", tc.args, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHandleShutdownSignalsCancelsThenExitsOnSecondSignal(t *testing.T) {
+	signals := make(chan os.Signal, 2)
+	canceled := make(chan struct{})
+	exitCode := make(chan int, 1)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		handleShutdownSignals(signals, func() {
+			close(canceled)
+		}, func(code int) {
+			exitCode <- code
+		})
+	}()
+
+	signals <- os.Interrupt
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("first signal did not cancel context")
+	}
+	select {
+	case code := <-exitCode:
+		t.Fatalf("first signal exited with code %d", code)
+	default:
+	}
+
+	signals <- os.Interrupt
+	select {
+	case code := <-exitCode:
+		if code != 130 {
+			t.Fatalf("second interrupt exit code = %d, want 130", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second signal did not exit")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("signal handler did not return")
+	}
+}
+
+func TestExitCodeForSignal(t *testing.T) {
+	if got := exitCodeForSignal(os.Interrupt); got != 130 {
+		t.Fatalf("interrupt exit code = %d, want 130", got)
+	}
+	if got := exitCodeForSignal(syscall.SIGTERM); got != 143 {
+		t.Fatalf("sigterm exit code = %d, want 143", got)
+	}
+	if got := exitCodeForSignal(syscall.SIGHUP); got != 1 {
+		t.Fatalf("fallback exit code = %d, want 1", got)
 	}
 }

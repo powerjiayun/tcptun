@@ -74,7 +74,27 @@ dependencies {
 }
 ```
 
-gomobile API 保持与现有 Kotlin 反射路径兼容：package 为 `androidbridge`，class 为 `Androidbridge`，回调接口为 `LogCallback.OnLog(line: String)` 和 `SocketProtector.Protect(fd: Long): Boolean`。
+gomobile API 保持与现有 Kotlin 反射路径兼容：package 为 `androidbridge`，class 为 `Androidbridge`，回调接口为 `LogCallback.OnLog(line: String)` 和 `SocketProtector.Protect(fd: Long): Boolean`。新的 Android App 也可以安装主动状态回调：
+
+```kotlin
+Androidbridge.setStatusCallback(object : StatusCallback {
+    override fun onStatus(eventJson: String) {
+        // 按字段名解析；未知字段预留给未来扩展。
+    }
+})
+```
+
+向 `SetStatusCallback` 传入 `null` 会清除回调。状态事件是 JSON 对象，字段如下：
+
+- `state`：`starting`、`listening`、`running`、`upstream_connecting`、`upstream_connected`、`degraded`、`reconnecting`、`stopping`、`stopped` 或 `error`。
+- `phase`：简短的人类可读阶段描述。
+- `listen`：已知时填写本地监听地址。
+- `remote`：已知时填写远端服务器或上游地址。
+- `active_connections`：当前预留，可能为 `0`。
+- `last_error`：已脱敏的错误摘要，不包含 token、UUID、密码或私钥。
+- `timestamp_ms`：Unix 毫秒时间戳。
+
+`Status()` 仍然可用，并返回原有简单状态字符串（`Stopped`、`Starting`、`Running`、`Error`），现有 Android App 不需要修改。
 
 ## 运行
 

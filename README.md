@@ -74,7 +74,27 @@ dependencies {
 }
 ```
 
-The gomobile API remains compatible with the existing Kotlin reflection path: package `androidbridge`, class `Androidbridge`, callbacks `LogCallback.OnLog(line: String)` and `SocketProtector.Protect(fd: Long): Boolean`.
+The gomobile API remains compatible with the existing Kotlin reflection path: package `androidbridge`, class `Androidbridge`, callbacks `LogCallback.OnLog(line: String)` and `SocketProtector.Protect(fd: Long): Boolean`. New Android apps can also install a proactive status callback:
+
+```kotlin
+Androidbridge.setStatusCallback(object : StatusCallback {
+    override fun onStatus(eventJson: String) {
+        // Parse by field name; unknown fields are reserved for future expansion.
+    }
+})
+```
+
+Passing `null` to `SetStatusCallback` clears the callback. Status events are JSON objects with these fields:
+
+- `state`: `starting`, `listening`, `running`, `upstream_connecting`, `upstream_connected`, `degraded`, `reconnecting`, `stopping`, `stopped`, or `error`.
+- `phase`: a short human-readable phase.
+- `listen`: local listen address when known.
+- `remote`: remote server or upstream address when known.
+- `active_connections`: currently reserved; may be `0`.
+- `last_error`: sanitized error summary without tokens, UUIDs, passwords, or private keys.
+- `timestamp_ms`: Unix timestamp in milliseconds.
+
+`Status()` is still available and returns the existing simple state strings (`Stopped`, `Starting`, `Running`, `Error`), so existing Android apps do not need to change.
 
 ## Run
 

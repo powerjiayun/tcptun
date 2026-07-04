@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -29,6 +30,11 @@ type LogCallback interface {
 	OnLog(line string)
 }
 
+// StatusCallback receives active tcptun runtime status events as JSON.
+type StatusCallback interface {
+	OnStatus(eventJson string)
+}
+
 // SocketProtector wraps VpnService.protect(fd) for sockets opened by tcptun.
 type SocketProtector interface {
 	Protect(fd int64) bool
@@ -41,10 +47,28 @@ type bridgeState struct {
 	done      chan error
 	lastError error
 	logCB     LogCallback
+	statusCB  StatusCallback
 	protector SocketProtector
+	listen    string
+	remote    string
 }
 
 var state = bridgeState{status: statusStopped}
+
+type statusEvent struct {
+	State             string `json:"state"`
+	Phase             string `json:"phase"`
+	Listen            string `json:"listen"`
+	Remote            string `json:"remote"`
+	ActiveConnections int    `json:"active_connections"`
+	LastError         string `json:"last_error"`
+	TimestampMS       int64  `json:"timestamp_ms"`
+}
+
+var (
+	uuidPattern           = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+	sensitiveFieldPattern = regexp.MustCompile(`(?i)(token|password|passwd|secret|uuid|private[_-]?key)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^,\s}]+)`)
+)
 
 // Start parses configJSON and starts tcptun in the background.
 func Start(configJSON string) error {
@@ -54,6 +78,8 @@ func Start(configJSON string) error {
 		return err
 	}
 	cfg.DialControl = protectSocket
+	listen := statusListen(cfg)
+	remote := strings.TrimSpace(cfg.ServerAddr)
 
 	state.mu.Lock()
 	if state.status == statusStarting || state.status == statusRunning {
@@ -75,13 +101,19 @@ func Start(configJSON string) error {
 	state.cancel = cancel
 	state.done = done
 	state.lastError = nil
+	state.listen = listen
+	state.remote = remote
 	state.mu.Unlock()
+	emitStatus(statusEvent{
+		State:  "starting",
+		Phase:  "Start called",
+		Listen: listen,
+		Remote: remote,
+	})
 
 	go func() {
-		setStatus(statusRunning)
-		err := tcptun.RunProxy(ctx, cfg, log)
+		err := tcptun.RunProxy(ctx, cfg, statusLogWriter{out: log, listen: listen, remote: remote})
 		state.mu.Lock()
-		defer state.mu.Unlock()
 		if err != nil && ctx.Err() == nil {
 			state.status = statusError
 			state.lastError = err
@@ -91,6 +123,23 @@ func Start(configJSON string) error {
 		}
 		state.cancel = nil
 		state.done = nil
+		state.mu.Unlock()
+		if err != nil && ctx.Err() == nil {
+			emitStatus(statusEvent{
+				State:     "error",
+				Phase:     "Proxy service stopped with error",
+				Listen:    listen,
+				Remote:    remote,
+				LastError: sanitizeErrorSummary(err),
+			})
+		} else {
+			emitStatus(statusEvent{
+				State:  "stopped",
+				Phase:  "Proxy service stopped",
+				Listen: listen,
+				Remote: remote,
+			})
+		}
 		done <- err
 		close(done)
 	}()
@@ -103,14 +152,28 @@ func Stop() error {
 	state.mu.Lock()
 	cancel := state.cancel
 	done := state.done
+	listen := state.listen
+	remote := state.remote
 	if cancel == nil || done == nil {
 		state.status = statusStopped
 		state.lastError = nil
 		state.mu.Unlock()
+		emitStatus(statusEvent{
+			State:  "stopped",
+			Phase:  "Proxy service is already stopped",
+			Listen: listen,
+			Remote: remote,
+		})
 		return nil
 	}
 	state.mu.Unlock()
 
+	emitStatus(statusEvent{
+		State:  "stopping",
+		Phase:  "Stop called",
+		Listen: listen,
+		Remote: remote,
+	})
 	cancel()
 	timer := time.NewTimer(stopTimeout)
 	defer timer.Stop()
@@ -118,11 +181,32 @@ func Stop() error {
 	select {
 	case err := <-done:
 		if err != nil && !errors.Is(err, context.Canceled) {
+			emitStatus(statusEvent{
+				State:     "error",
+				Phase:     "Proxy service stopped with error",
+				Listen:    listen,
+				Remote:    remote,
+				LastError: sanitizeErrorSummary(err),
+			})
 			return err
 		}
+		emitStatus(statusEvent{
+			State:  "stopped",
+			Phase:  "Stop completed",
+			Listen: listen,
+			Remote: remote,
+		})
 		return nil
 	case <-timer.C:
-		return fmt.Errorf("timed out waiting %s for tcptun to stop", stopTimeout)
+		err := fmt.Errorf("timed out waiting %s for tcptun to stop", stopTimeout)
+		emitStatus(statusEvent{
+			State:     "error",
+			Phase:     "Stop timed out",
+			Listen:    listen,
+			Remote:    remote,
+			LastError: sanitizeErrorSummary(err),
+		})
+		return err
 	}
 }
 
@@ -137,6 +221,13 @@ func Status() string {
 func SetLogCallback(cb LogCallback) {
 	state.mu.Lock()
 	state.logCB = cb
+	state.mu.Unlock()
+}
+
+// SetStatusCallback installs the Android status callback. Passing nil disables it.
+func SetStatusCallback(cb StatusCallback) {
+	state.mu.Lock()
+	state.statusCB = cb
 	state.mu.Unlock()
 }
 
@@ -158,6 +249,11 @@ func setError(err error) {
 	state.status = statusError
 	state.lastError = err
 	state.mu.Unlock()
+	emitStatus(statusEvent{
+		State:     "error",
+		Phase:     "Start failed",
+		LastError: sanitizeErrorSummary(err),
+	})
 }
 
 type logWriter struct{}
@@ -178,6 +274,167 @@ func (logWriter) Write(p []byte) (int, error) {
 		cb.OnLog(trimmed)
 	}
 	return len(p), nil
+}
+
+type statusLogWriter struct {
+	out    io.Writer
+	listen string
+	remote string
+}
+
+func (w statusLogWriter) Write(p []byte) (int, error) {
+	if w.out == nil {
+		w.out = io.Discard
+	}
+	for _, line := range strings.SplitAfter(string(p), "\n") {
+		trimmed := strings.TrimRight(line, "\r\n")
+		if trimmed == "" {
+			continue
+		}
+		w.observe(trimmed)
+	}
+	n, err := w.out.Write(p)
+	if err != nil {
+		return n, err
+	}
+	if n != len(p) {
+		return n, io.ErrShortWrite
+	}
+	return n, nil
+}
+
+func (w statusLogWriter) observe(line string) {
+	lower := strings.ToLower(line)
+	switch {
+	case strings.Contains(lower, "listening on "):
+		listen := extractListenAddr(line, w.listen)
+		emitStatus(statusEvent{
+			State:  "listening",
+			Phase:  "Local listener is ready",
+			Listen: listen,
+			Remote: w.remote,
+		})
+		emitStatus(statusEvent{
+			State:  "running",
+			Phase:  "Proxy service is accepting connections",
+			Listen: listen,
+			Remote: w.remote,
+		})
+	case strings.Contains(lower, "retrying"):
+		emitStatus(statusEvent{
+			State:     "reconnecting",
+			Phase:     "Retrying connection",
+			Listen:    w.listen,
+			Remote:    w.remote,
+			LastError: sanitizeErrorSummary(errors.New(line)),
+		})
+	case strings.Contains(lower, " failed") || strings.Contains(lower, " error"):
+		emitStatus(statusEvent{
+			State:     "degraded",
+			Phase:     "Runtime connection issue",
+			Listen:    w.listen,
+			Remote:    w.remote,
+			LastError: sanitizeErrorSummary(errors.New(line)),
+		})
+	}
+}
+
+func emitStatus(event statusEvent) {
+	if strings.TrimSpace(event.State) == "" {
+		return
+	}
+	if event.TimestampMS == 0 {
+		event.TimestampMS = time.Now().UnixMilli()
+	}
+	if event.LastError != "" {
+		event.LastError = sanitizeErrorSummary(errors.New(event.LastError))
+	}
+
+	state.mu.Lock()
+	if event.Listen == "" {
+		event.Listen = state.listen
+	}
+	if event.Remote == "" {
+		event.Remote = state.remote
+	}
+	if event.LastError != "" {
+		state.lastError = errors.New(event.LastError)
+	}
+	state.status = statusFromEventState(event.State)
+	cb := state.statusCB
+	state.mu.Unlock()
+
+	if cb == nil {
+		return
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = recover()
+	}()
+	cb.OnStatus(string(payload))
+}
+
+func statusFromEventState(eventState string) string {
+	switch eventState {
+	case "starting":
+		return statusStarting
+	case "listening", "running", "upstream_connecting", "upstream_connected", "degraded", "reconnecting":
+		return statusRunning
+	case "stopping", "stopped":
+		return statusStopped
+	case "error":
+		return statusError
+	default:
+		return state.status
+	}
+}
+
+func statusListen(cfg tcptun.Config) string {
+	for _, addr := range cfg.ListenAddrs {
+		if trimmed := strings.TrimSpace(addr); trimmed != "" {
+			return trimmed
+		}
+	}
+	return strings.TrimSpace(cfg.ListenAddr)
+}
+
+func extractListenAddr(line string, fallback string) string {
+	const marker = "listening on "
+	lower := strings.ToLower(line)
+	idx := strings.Index(lower, marker)
+	if idx < 0 {
+		return fallback
+	}
+	rest := strings.TrimSpace(line[idx+len(marker):])
+	if rest == "" {
+		return fallback
+	}
+	addr := strings.Fields(rest)[0]
+	addr = strings.TrimRight(addr, ",")
+	if addr == "" {
+		return fallback
+	}
+	return addr
+}
+
+func sanitizeErrorSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	summary := strings.TrimSpace(err.Error())
+	if summary == "" {
+		return ""
+	}
+	summary = sensitiveFieldPattern.ReplaceAllString(summary, `$1$2<redacted>`)
+	summary = uuidPattern.ReplaceAllString(summary, "<redacted>")
+	const maxSummary = 512
+	if len(summary) > maxSummary {
+		summary = summary[:maxSummary]
+	}
+	return summary
 }
 
 func protectSocket(network, address string, c syscall.RawConn) error {

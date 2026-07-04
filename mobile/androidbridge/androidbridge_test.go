@@ -1,8 +1,10 @@
 package androidbridge
 
 import (
+	"encoding/json"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -104,6 +106,155 @@ func TestParseConfigJSONDurationError(t *testing.T) {
 	}
 }
 
+func TestSetStatusCallbackNilClearsCallback(t *testing.T) {
+	var calls atomic.Int64
+	SetStatusCallback(statusCallbackFunc(func(string) {
+		calls.Add(1)
+	}))
+	SetStatusCallback(nil)
+	t.Cleanup(func() {
+		SetStatusCallback(nil)
+	})
+
+	emitStatus(statusEvent{State: "starting", Phase: "unit test"})
+	if calls.Load() != 0 {
+		t.Fatalf("status callback calls = %d, want 0", calls.Load())
+	}
+}
+
+func TestEmitStatusCallbackReceivesValidJSON(t *testing.T) {
+	events := make(chan string, 1)
+	SetStatusCallback(statusCallbackFunc(func(eventJSON string) {
+		events <- eventJSON
+	}))
+	t.Cleanup(func() {
+		SetStatusCallback(nil)
+	})
+
+	emitStatus(statusEvent{
+		State:             "running",
+		Phase:             "unit test running",
+		Listen:            "127.0.0.1:1080",
+		Remote:            "example.com:443",
+		ActiveConnections: 3,
+		LastError:         "token=secret 14c1bdf2-9815-46ff-862e-50f459b84cbf",
+	})
+
+	event := readStatusEvent(t, events)
+	if event.State != "running" || event.Phase != "unit test running" {
+		t.Fatalf("unexpected status event: %#v", event)
+	}
+	if event.Listen != "127.0.0.1:1080" || event.Remote != "example.com:443" {
+		t.Fatalf("unexpected addresses in status event: %#v", event)
+	}
+	if event.ActiveConnections != 3 {
+		t.Fatalf("active connections = %d, want 3", event.ActiveConnections)
+	}
+	if event.TimestampMS == 0 {
+		t.Fatal("timestamp_ms is zero")
+	}
+	if strings.Contains(event.LastError, "secret") || strings.Contains(event.LastError, "14c1bdf2") {
+		t.Fatalf("last_error was not redacted: %q", event.LastError)
+	}
+}
+
+func TestEmitStatusRecoversCallbackPanic(t *testing.T) {
+	SetStatusCallback(statusCallbackFunc(func(string) {
+		panic("android callback panic")
+	}))
+	t.Cleanup(func() {
+		SetStatusCallback(nil)
+	})
+
+	emitStatus(statusEvent{State: "running", Phase: "panic test"})
+}
+
+func TestEmitStatusUpdatesSimpleStatus(t *testing.T) {
+	SetStatusCallback(nil)
+	t.Cleanup(func() {
+		SetStatusCallback(nil)
+	})
+
+	emitStatus(statusEvent{State: "starting", Phase: "status test"})
+	if got := Status(); got != statusStarting {
+		t.Fatalf("Status() = %q, want %q", got, statusStarting)
+	}
+	emitStatus(statusEvent{State: "degraded", Phase: "status test"})
+	if got := Status(); got != statusRunning {
+		t.Fatalf("Status() = %q, want %q", got, statusRunning)
+	}
+	emitStatus(statusEvent{State: "error", Phase: "status test"})
+	if got := Status(); got != statusError {
+		t.Fatalf("Status() = %q, want %q", got, statusError)
+	}
+	emitStatus(statusEvent{State: "stopped", Phase: "status test"})
+	if got := Status(); got != statusStopped {
+		t.Fatalf("Status() = %q, want %q", got, statusStopped)
+	}
+}
+
+func TestConcurrentSetStatusCallbackAndEmitStatus(t *testing.T) {
+	var calls atomic.Int64
+	cb := statusCallbackFunc(func(string) {
+		calls.Add(1)
+	})
+	t.Cleanup(func() {
+		SetStatusCallback(nil)
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 250; j++ {
+				SetStatusCallback(cb)
+				SetStatusCallback(nil)
+			}
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 250; j++ {
+				emitStatus(statusEvent{State: "degraded", Phase: "race test"})
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestStartStopEmitStatusEvents(t *testing.T) {
+	SetStatusCallback(nil)
+	if err := Stop(); err != nil {
+		t.Fatalf("initial Stop returned error: %v", err)
+	}
+
+	events := make(chan string, 16)
+	SetStatusCallback(statusCallbackFunc(func(eventJSON string) {
+		events <- eventJSON
+	}))
+	t.Cleanup(func() {
+		SetStatusCallback(nil)
+		if err := Stop(); err != nil {
+			t.Fatalf("cleanup Stop returned error: %v", err)
+		}
+	})
+
+	configJSON := `{"mode":"client","listen_addrs":["127.0.0.1:0"],"server_addr":"127.0.0.1:1","token":"secret","route_config_path":"` + t.TempDir() + `/route.json"}`
+	if err := Start(configJSON); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	waitStatusState(t, events, "starting")
+
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+	waitStatusState(t, events, "stopping")
+	waitStatusState(t, events, "stopped")
+}
+
 func TestStartDuplicateCallReturnsError(t *testing.T) {
 	t.Cleanup(func() {
 		if err := Stop(); err != nil {
@@ -193,4 +344,45 @@ func testRawConn(t *testing.T) (*net.UDPConn, syscall.RawConn) {
 		t.Fatalf("SyscallConn returned error: %v", err)
 	}
 	return conn, rawConn
+}
+
+type statusCallbackFunc func(string)
+
+func (f statusCallbackFunc) OnStatus(eventJSON string) {
+	f(eventJSON)
+}
+
+func readStatusEvent(t *testing.T, events <-chan string) statusEvent {
+	t.Helper()
+	select {
+	case eventJSON := <-events:
+		var event statusEvent
+		if err := json.Unmarshal([]byte(eventJSON), &event); err != nil {
+			t.Fatalf("status event is not valid JSON: %v; payload=%q", err, eventJSON)
+		}
+		return event
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for status event")
+		return statusEvent{}
+	}
+}
+
+func waitStatusState(t *testing.T, events <-chan string, want string) statusEvent {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case eventJSON := <-events:
+			var event statusEvent
+			if err := json.Unmarshal([]byte(eventJSON), &event); err != nil {
+				t.Fatalf("status event is not valid JSON: %v; payload=%q", err, eventJSON)
+			}
+			if event.State == want {
+				return event
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for status state %q", want)
+			return statusEvent{}
+		}
+	}
 }
