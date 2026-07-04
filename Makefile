@@ -53,7 +53,7 @@ RUN_COMMAND :=
 RUN_FLAGS := --listen $(LISTEN) --gateway-port $(GATEWAY_PORT) --config $(CONFIG) --route-config $(ROUTE_CONFIG) $(if $(UPSTREAM_PROTOCOL),--upstream-protocol $(UPSTREAM_PROTOCOL),) $(if $(GATEWAY_IP),--gateway-ip $(GATEWAY_IP),)
 endif
 
-.PHONY: all build release test fmt tidy run clean help
+.PHONY: all build release publish test fmt tidy run clean help
 
 all: build
 
@@ -83,6 +83,10 @@ release:
 		fi; \
 	done
 
+publish:
+	@case "$(origin VERSION)" in command\ line|environment|environment\ override) ;; *) echo "VERSION is required, for example: make publish VERSION=v0.1.2" >&2; exit 2 ;; esac
+	./scripts/release.sh $(VERSION)
+
 test:
 	$(GO_ENV) $(GO) test ./...
 
@@ -104,6 +108,7 @@ help:
 	@echo "Targets:"
 	@echo "  make build    Build ./$(BINARY)"
 	@echo "  make release  Cross-compile release binaries into ./$(DIST_DIR)"
+	@echo "  make publish  Update version, test, commit, tag, and push. Usage: make publish VERSION=v0.1.2"
 	@echo "  make test     Run tests"
 	@echo "  make fmt      Format Go code"
 	@echo "  make tidy     Tidy Go modules"
