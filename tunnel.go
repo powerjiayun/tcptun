@@ -165,11 +165,8 @@ func runRawTunnelServer(ctx context.Context, cfg config, log io.Writer) error {
 	server := &proxyServer{
 		cfg:     cfg,
 		reality: reality,
-		dialer: net.Dialer{
-			Timeout:   cfg.DialTimeout,
-			KeepAlive: cfg.HeartbeatInterval,
-		},
-		log: log,
+		dialer:  newNetDialer(cfg),
+		log:     log,
 	}
 	server.bufferPool.New = func() any {
 		buf := make([]byte, cfg.BufferSize)

@@ -60,10 +60,7 @@ func buildRealityServerConfig(cfg config) (*xreality.Config, error) {
 	if _, _, err := net.SplitHostPort(dest); err != nil {
 		return nil, fmt.Errorf("invalid REALITY dest %q: %w", dest, err)
 	}
-	dialer := net.Dialer{
-		Timeout:   cfg.DialTimeout,
-		KeepAlive: cfg.HeartbeatInterval,
-	}
+	dialer := newNetDialer(cfg)
 	return &xreality.Config{
 		DialContext:            dialer.DialContext,
 		Type:                   "tcp",

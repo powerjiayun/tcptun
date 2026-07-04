@@ -106,6 +106,7 @@ type Config struct {
 	ScanWorkers            int
 	BufferSize             int
 	Verbose                bool
+	DialControl            func(network, address string, c syscall.RawConn) error
 }
 
 type config = Config
@@ -479,15 +480,12 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 	server := &proxyServer{
 		cfg:      cfg,
 		resolver: resolver,
-		dialer: net.Dialer{
-			Timeout:   cfg.DialTimeout,
-			KeepAlive: cfg.HeartbeatInterval,
-		},
-		direct: newDirectCache(),
-		sticky: newUpstreamSticky(),
-		routes: routes,
-		local:  localSources,
-		log:    log,
+		dialer:   newNetDialer(cfg),
+		direct:   newDirectCache(),
+		sticky:   newUpstreamSticky(),
+		routes:   routes,
+		local:    localSources,
+		log:      log,
 	}
 	server.bufferPool.New = func() any {
 		buf := make([]byte, cfg.BufferSize)
@@ -506,6 +504,14 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 		refreshErr = resolver.start(ctx)
 	}
 	return runProxyOnAddrs(ctx, cfg, server, listenAddrs, refreshErr, log)
+}
+
+func newNetDialer(cfg config) net.Dialer {
+	return net.Dialer{
+		Timeout:   cfg.DialTimeout,
+		KeepAlive: cfg.HeartbeatInterval,
+		Control:   cfg.DialControl,
+	}
 }
 
 func runProxyOnAddrs(ctx context.Context, cfg config, server *proxyServer, listenAddrs []string, refreshErr <-chan error, log io.Writer) error {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -163,12 +164,9 @@ func runHTTPTunnelServer(ctx context.Context, cfg config, listenAddrs []string, 
 func runHTTPTunnelServerOnAddr(ctx context.Context, cfg config, log io.Writer) error {
 	mux := http.NewServeMux()
 	server := &proxyServer{
-		cfg: cfg,
-		dialer: net.Dialer{
-			Timeout:   cfg.DialTimeout,
-			KeepAlive: cfg.HeartbeatInterval,
-		},
-		log: log,
+		cfg:    cfg,
+		dialer: newNetDialer(cfg),
+		log:    log,
 	}
 	server.bufferPool.New = func() any {
 		buf := make([]byte, cfg.BufferSize)
@@ -401,6 +399,7 @@ func (s *proxyServer) dialWebSocketTunnel(ctx context.Context) (net.Conn, error)
 	}
 	dialer := websocket.Dialer{
 		HandshakeTimeout: s.cfg.DialTimeout,
+		NetDialContext:   s.dialer.DialContext,
 	}
 	if s.cfg.TunnelTLS || strings.EqualFold(tunnelURL.Scheme, "wss") {
 		dialer.TLSClientConfig = tunnelTLSClientConfig(s.cfg)
@@ -494,13 +493,57 @@ func (s *proxyServer) tunnelRoundTripper(transport string, tunnelURL *url.URL) (
 			return nil
 		}, nil
 	case tunnelTransportH3:
+		var quicTransports []*quic.Transport
 		rt := &http3.Transport{
 			TLSClientConfig: tunnelTLSClientConfig(s.cfg),
+			Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+				conn, transport, err := dialProtectedQUIC(ctx, addr, tlsCfg, cfg, s.cfg)
+				if err != nil {
+					return nil, err
+				}
+				quicTransports = append(quicTransports, transport)
+				return conn, nil
+			},
 		}
-		return rt, rt.Close, nil
+		return rt, func() error {
+			var err error
+			for _, transport := range quicTransports {
+				err = errors.Join(err, transport.Close())
+			}
+			return errors.Join(err, rt.Close())
+		}, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported HTTP tunnel transport %q", transport)
 	}
+}
+
+func dialProtectedQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config, proxyCfg config) (*quic.Conn, *quic.Transport, error) {
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	udpConn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	if proxyCfg.DialControl != nil {
+		rawConn, err := udpConn.SyscallConn()
+		if err != nil {
+			closeErr := udpConn.Close()
+			return nil, nil, errors.Join(err, closeErr)
+		}
+		if err := proxyCfg.DialControl("udp", addr, rawConn); err != nil {
+			closeErr := udpConn.Close()
+			return nil, nil, errors.Join(err, closeErr)
+		}
+	}
+	transport := &quic.Transport{Conn: udpConn}
+	conn, err := transport.DialEarly(ctx, udpAddr, tlsCfg, cfg)
+	if err != nil {
+		closeErr := transport.Close()
+		return nil, nil, errors.Join(err, closeErr)
+	}
+	return conn, transport, nil
 }
 
 func buildTunnelURL(cfg config, transport string) (*url.URL, error) {
