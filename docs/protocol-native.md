@@ -4,6 +4,8 @@ Chinese version: [protocol-native.zh-CN.md](protocol-native.zh-CN.md)
 
 `native` is this project's native tunnel protocol and the default protocol. It is designed for project-owned client/server deployments where low overhead and full feature coverage matter more than compatibility with external tcptun stacks.
 
+Native request and response headers are encrypted with an AEAD key derived from the shared token and a per-packet random salt. The token and target host are not sent in plaintext, and the legacy fixed plaintext magic is no longer used.
+
 ## Best For
 
 - Both client and server run this project.
@@ -29,7 +31,7 @@ Chinese version: [protocol-native.zh-CN.md](protocol-native.zh-CN.md)
 | Field | Side | Meaning |
 | --- | --- | --- |
 | `tunnel_protocol: "native"` | server/client | Enables the native protocol. |
-| `token` | server/client | Shared authentication token. Production deployments should always set it. |
+| `token` | server/client | Shared authentication and key-derivation token. Production deployments should always set a long random value. |
 | `tunnel_transport` | server/client | Carrier transport. `raw` is the default and has the lowest overhead. |
 | `tunnel_mux` | server/client | Enables multiplexing. Recommended for tcptun-to-tcptun deployments. |
 | `tunnel_path` | server/client | Path used by WebSocket/HTTP transports. Raw transport can keep the default. |

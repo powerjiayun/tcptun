@@ -3790,7 +3790,7 @@ func TestProtocolPrivateMuxMultiplexesNativeTunnelRequests(t *testing.T) {
 				}); err != nil {
 					t.Fatalf("write stream request %d: %v", i, err)
 				}
-				if err := readTunnelResponse(stream); err == nil {
+				if err := readTunnelResponse(stream, tt.token); err == nil {
 					t.Fatalf("stream %d response succeeded, want private target rejection", i)
 				}
 				if err := stream.Close(); err != nil && !errors.Is(err, errMuxClosed) && !isExpectedNetworkClose(err) {

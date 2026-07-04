@@ -3,6 +3,11 @@ package tcptun
 import (
 	"bufio"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/binary"
 	"errors"
@@ -15,21 +20,22 @@ import (
 )
 
 const (
-	tunnelMagic          = "PSK1"
 	tunnelVersion        = byte(0x01)
 	tunnelCmdTCPConnect  = byte(0x01)
 	tunnelCmdUDPRelay    = byte(0x02)
 	tunnelCmdMux         = byte(0x03)
 	tunnelStatusOK       = byte(0x00)
 	tunnelStatusError    = byte(0x01)
-	tunnelMaxTokenLength = 4096
 	tunnelMaxHostLength  = 255
 	tunnelMaxErrorLength = 4096
 	tunnelMaxUDPPayload  = 64 * 1024
+	tunnelCryptoSaltSize = 16
+	tunnelCryptoLenSize  = 2
+	tunnelCryptoTagSize  = 16
 )
 
 var (
-	errTunnelBadMagic      = errors.New("invalid tunnel magic")
+	errTunnelBadMagic      = errors.New("invalid tunnel packet")
 	errTunnelBadVersion    = errors.New("invalid tunnel version")
 	errTunnelUnauthorized  = errors.New("tunnel unauthorized")
 	errTunnelUnsupported   = errors.New("unsupported tunnel command")
@@ -255,15 +261,9 @@ func (s *proxyServer) handleTunnelConnError(ctx context.Context, conn net.Conn) 
 	if s.cfg.TunnelProtocol != tunnelProtocolNative {
 		return s.handleProtocolTunnelConn(ctx, conn, reader)
 	}
-	req, err := readTunnelRequest(reader)
+	req, err := readTunnelRequest(reader, s.cfg.Token)
 	if err != nil {
 		return err
-	}
-	if !tokenMatches(s.cfg.Token, req.token) {
-		if writeErr := writeTunnelResponse(conn, tunnelStatusError, errTunnelUnauthorized.Error()); writeErr != nil {
-			return errors.Join(errTunnelUnauthorized, writeErr)
-		}
-		return errTunnelUnauthorized
 	}
 
 	switch req.cmd {
@@ -274,7 +274,7 @@ func (s *proxyServer) handleTunnelConnError(ctx context.Context, conn net.Conn) 
 	case tunnelCmdMux:
 		return s.handleTunnelMux(ctx, conn, reader)
 	default:
-		if writeErr := writeTunnelResponse(conn, tunnelStatusError, errTunnelUnsupported.Error()); writeErr != nil {
+		if writeErr := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusError, errTunnelUnsupported.Error()); writeErr != nil {
 			return errors.Join(errTunnelUnsupported, writeErr)
 		}
 		return errTunnelUnsupported
@@ -282,7 +282,7 @@ func (s *proxyServer) handleTunnelConnError(ctx context.Context, conn net.Conn) 
 }
 
 func (s *proxyServer) handleTunnelMux(ctx context.Context, conn net.Conn, reader *bufio.Reader) error {
-	if err := writeTunnelResponse(conn, tunnelStatusOK, ""); err != nil {
+	if err := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusOK, ""); err != nil {
 		return err
 	}
 	return s.serveMuxSession(ctx, conn, reader)
@@ -333,15 +333,9 @@ func (s *proxyServer) handleTunnelMuxStreamError(ctx context.Context, stream net
 	}()
 
 	reader := bufio.NewReader(stream)
-	req, err := readTunnelRequest(reader)
+	req, err := readTunnelRequest(reader, s.cfg.Token)
 	if err != nil {
 		return err
-	}
-	if !tokenMatches(s.cfg.Token, req.token) {
-		if writeErr := writeTunnelResponse(stream, tunnelStatusError, errTunnelUnauthorized.Error()); writeErr != nil {
-			return errors.Join(errTunnelUnauthorized, writeErr)
-		}
-		return errTunnelUnauthorized
 	}
 	switch req.cmd {
 	case tunnelCmdTCPConnect:
@@ -349,7 +343,7 @@ func (s *proxyServer) handleTunnelMuxStreamError(ctx context.Context, stream net
 	case tunnelCmdUDPRelay:
 		return s.handleTunnelUDP(ctx, stream, reader)
 	default:
-		if writeErr := writeTunnelResponse(stream, tunnelStatusError, errTunnelUnsupported.Error()); writeErr != nil {
+		if writeErr := writeTunnelResponse(stream, s.cfg.Token, tunnelStatusError, errTunnelUnsupported.Error()); writeErr != nil {
 			return errors.Join(errTunnelUnsupported, writeErr)
 		}
 		return errTunnelUnsupported
@@ -359,7 +353,7 @@ func (s *proxyServer) handleTunnelMuxStreamError(ctx context.Context, stream net
 func (s *proxyServer) handleTunnelTCP(ctx context.Context, conn net.Conn, reader *bufio.Reader, req tunnelRequest) error {
 	if req.host == "" || req.port == 0 {
 		err := errors.New("invalid tunnel tcp target")
-		if writeErr := writeTunnelResponse(conn, tunnelStatusError, err.Error()); writeErr != nil {
+		if writeErr := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusError, err.Error()); writeErr != nil {
 			return errors.Join(err, writeErr)
 		}
 		return nil
@@ -367,26 +361,26 @@ func (s *proxyServer) handleTunnelTCP(ctx context.Context, conn net.Conn, reader
 	logTarget := accessTarget(req.host, strconv.Itoa(int(req.port)))
 	target, err := s.publicTCPTarget(ctx, req.host, req.port)
 	if err != nil {
-		if writeErr := writeTunnelResponse(conn, tunnelStatusError, err.Error()); writeErr != nil {
+		if writeErr := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusError, err.Error()); writeErr != nil {
 			return errors.Join(err, writeErr)
 		}
 		return nil
 	}
 	outbound, err := s.dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
-		if writeErr := writeTunnelResponse(conn, tunnelStatusError, err.Error()); writeErr != nil {
+		if writeErr := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusError, err.Error()); writeErr != nil {
 			return errors.Join(err, writeErr)
 		}
 		return nil
 	}
 	defer closeConnWithLog(outbound, s.log, "tunnel tcp target "+target)
 	if err := tuneTCP(outbound, s.cfg.HeartbeatInterval); err != nil {
-		if writeErr := writeTunnelResponse(conn, tunnelStatusError, err.Error()); writeErr != nil {
+		if writeErr := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusError, err.Error()); writeErr != nil {
 			return errors.Join(err, writeErr)
 		}
 		return err
 	}
-	if err := writeTunnelResponse(conn, tunnelStatusOK, ""); err != nil {
+	if err := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusOK, ""); err != nil {
 		return err
 	}
 	if err := s.bridge(outbound, conn, reader); err != nil {
@@ -401,13 +395,13 @@ func (s *proxyServer) handleTunnelTCP(ctx context.Context, conn net.Conn, reader
 func (s *proxyServer) handleTunnelUDP(ctx context.Context, conn net.Conn, reader *bufio.Reader) error {
 	udpConn, err := net.ListenUDP("udp", nil)
 	if err != nil {
-		if writeErr := writeTunnelResponse(conn, tunnelStatusError, err.Error()); writeErr != nil {
+		if writeErr := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusError, err.Error()); writeErr != nil {
 			return errors.Join(err, writeErr)
 		}
 		return nil
 	}
 	defer closeUDPWithLog(udpConn, s.log, "tunnel udp target")
-	if err := writeTunnelResponse(conn, tunnelStatusOK, ""); err != nil {
+	if err := writeTunnelResponse(conn, s.cfg.Token, tunnelStatusOK, ""); err != nil {
 		return err
 	}
 
@@ -523,7 +517,7 @@ func (s *proxyServer) connectViaTunnelTCP(ctx context.Context, req socksRequest)
 	}); err != nil {
 		return nil, target, closeAfterError(conn, err)
 	}
-	if err := readTunnelResponse(conn); err != nil {
+	if err := readTunnelResponse(conn, s.cfg.Token); err != nil {
 		return nil, target, closeAfterError(conn, err)
 	}
 	return conn, target, nil
@@ -548,7 +542,7 @@ func (s *proxyServer) connectViaTunnelUDP(ctx context.Context) (*nativeUDPUpstre
 	}); err != nil {
 		return nil, closeAfterError(conn, err)
 	}
-	if err := readTunnelResponse(reader); err != nil {
+	if err := readTunnelResponse(reader, s.cfg.Token); err != nil {
 		return nil, closeAfterError(conn, err)
 	}
 	return &nativeUDPUpstream{tcp: conn, reader: reader, label: target}, nil
@@ -621,7 +615,7 @@ func (s *proxyServer) tunnelMuxSession(ctx context.Context) (*muxSession, error)
 		}); err != nil {
 			return nil, closeAfterError(conn, err)
 		}
-		if err := readTunnelResponse(reader); err != nil {
+		if err := readTunnelResponse(reader, s.cfg.Token); err != nil {
 			return nil, closeAfterError(conn, err)
 		}
 	} else {
@@ -686,108 +680,164 @@ func (s *proxyServer) closeIdleTunnelMuxSession(session *muxSession) {
 }
 
 func writeTunnelRequest(w io.Writer, req tunnelRequest) error {
-	if len(req.token) > tunnelMaxTokenLength || len(req.host) > tunnelMaxHostLength {
+	if len(req.host) > tunnelMaxHostLength {
 		return errTunnelInvalidLength
 	}
-	header := make([]byte, 12)
-	copy(header[0:4], []byte(tunnelMagic))
-	header[4] = tunnelVersion
-	header[5] = req.cmd
-	binary.BigEndian.PutUint16(header[6:8], uint16(len(req.token)))
-	binary.BigEndian.PutUint16(header[8:10], uint16(len(req.host)))
-	binary.BigEndian.PutUint16(header[10:12], req.port)
-	if err := writeAll(w, header); err != nil {
-		return err
-	}
-	if req.token != "" {
-		if err := writeAll(w, []byte(req.token)); err != nil {
-			return err
-		}
-	}
+	plain := make([]byte, 6+len(req.host))
+	plain[0] = tunnelVersion
+	plain[1] = req.cmd
+	binary.BigEndian.PutUint16(plain[2:4], uint16(len(req.host)))
+	binary.BigEndian.PutUint16(plain[4:6], req.port)
 	if req.host != "" {
-		if err := writeAll(w, []byte(req.host)); err != nil {
-			return err
-		}
+		copy(plain[6:], req.host)
 	}
-	return nil
+	return writeEncryptedTunnelPacket(w, req.token, "request", plain)
 }
 
-func readTunnelRequest(reader io.Reader) (tunnelRequest, error) {
-	header := make([]byte, 12)
-	if _, err := io.ReadFull(reader, header); err != nil {
+func readTunnelRequest(reader io.Reader, token string) (tunnelRequest, error) {
+	plain, err := readEncryptedTunnelPacket(reader, token, "request", 6+tunnelMaxHostLength)
+	if err != nil {
 		return tunnelRequest{}, err
 	}
-	if string(header[0:4]) != tunnelMagic {
-		return tunnelRequest{}, errTunnelBadMagic
-	}
-	if header[4] != tunnelVersion {
-		return tunnelRequest{}, errTunnelBadVersion
-	}
-	tokenLen := int(binary.BigEndian.Uint16(header[6:8]))
-	hostLen := int(binary.BigEndian.Uint16(header[8:10]))
-	if tokenLen > tunnelMaxTokenLength || hostLen > tunnelMaxHostLength {
+	if len(plain) < 6 {
 		return tunnelRequest{}, errTunnelInvalidLength
 	}
-	token, err := readStringN(reader, tokenLen)
-	if err != nil {
-		return tunnelRequest{}, err
+	if plain[0] != tunnelVersion {
+		return tunnelRequest{}, errTunnelBadVersion
 	}
-	host, err := readStringN(reader, hostLen)
-	if err != nil {
-		return tunnelRequest{}, err
+	hostLen := int(binary.BigEndian.Uint16(plain[2:4]))
+	if hostLen > tunnelMaxHostLength || len(plain) != 6+hostLen {
+		return tunnelRequest{}, errTunnelInvalidLength
 	}
 	return tunnelRequest{
-		cmd:   header[5],
+		cmd:   plain[1],
 		token: token,
-		host:  host,
-		port:  binary.BigEndian.Uint16(header[10:12]),
+		host:  string(plain[6:]),
+		port:  binary.BigEndian.Uint16(plain[4:6]),
 	}, nil
 }
 
-func writeTunnelResponse(w io.Writer, status byte, message string) error {
+func writeTunnelResponse(w io.Writer, token string, status byte, message string) error {
 	if len(message) > tunnelMaxErrorLength {
 		message = message[:tunnelMaxErrorLength]
 	}
-	header := make([]byte, 8)
-	copy(header[0:4], []byte(tunnelMagic))
-	header[4] = tunnelVersion
-	header[5] = status
-	binary.BigEndian.PutUint16(header[6:8], uint16(len(message)))
-	if err := writeAll(w, header); err != nil {
-		return err
-	}
+	plain := make([]byte, 4+len(message))
+	plain[0] = tunnelVersion
+	plain[1] = status
+	binary.BigEndian.PutUint16(plain[2:4], uint16(len(message)))
 	if message != "" {
-		return writeAll(w, []byte(message))
+		copy(plain[4:], message)
 	}
-	return nil
+	return writeEncryptedTunnelPacket(w, token, "response", plain)
 }
 
-func readTunnelResponse(reader io.Reader) error {
-	header := make([]byte, 8)
-	if _, err := io.ReadFull(reader, header); err != nil {
-		return err
-	}
-	if string(header[0:4]) != tunnelMagic {
-		return errTunnelBadMagic
-	}
-	if header[4] != tunnelVersion {
-		return errTunnelBadVersion
-	}
-	messageLen := int(binary.BigEndian.Uint16(header[6:8]))
-	if messageLen > tunnelMaxErrorLength {
-		return errTunnelInvalidLength
-	}
-	message, err := readStringN(reader, messageLen)
+func readTunnelResponse(reader io.Reader, token string) error {
+	plain, err := readEncryptedTunnelPacket(reader, token, "response", 4+tunnelMaxErrorLength)
 	if err != nil {
 		return err
 	}
-	if header[5] != tunnelStatusOK {
+	if len(plain) < 4 {
+		return errTunnelInvalidLength
+	}
+	if plain[0] != tunnelVersion {
+		return errTunnelBadVersion
+	}
+	messageLen := int(binary.BigEndian.Uint16(plain[2:4]))
+	if messageLen > tunnelMaxErrorLength || len(plain) != 4+messageLen {
+		return errTunnelInvalidLength
+	}
+	message := string(plain[4:])
+	if plain[1] != tunnelStatusOK {
 		if message == "" {
 			return errors.New("tunnel request failed")
 		}
 		return errors.New(message)
 	}
 	return nil
+}
+
+func writeEncryptedTunnelPacket(w io.Writer, token string, label string, plain []byte) error {
+	salt := make([]byte, tunnelCryptoSaltSize)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return err
+	}
+	aead, nonce, err := tunnelPacketAEAD(token, label, salt)
+	if err != nil {
+		return err
+	}
+	sealed := aead.Seal(nil, nonce, plain, []byte(label))
+	if len(sealed) > 0xffff {
+		return errTunnelInvalidLength
+	}
+	header := make([]byte, tunnelCryptoSaltSize+tunnelCryptoLenSize)
+	copy(header, salt)
+	binary.BigEndian.PutUint16(header[tunnelCryptoSaltSize:], uint16(len(sealed)))
+	if err := writeAll(w, header); err != nil {
+		return err
+	}
+	return writeAll(w, sealed)
+}
+
+func readEncryptedTunnelPacket(reader io.Reader, token string, label string, maxPlainLen int) ([]byte, error) {
+	header := make([]byte, tunnelCryptoSaltSize+tunnelCryptoLenSize)
+	if _, err := io.ReadFull(reader, header); err != nil {
+		return nil, err
+	}
+	salt := header[:tunnelCryptoSaltSize]
+	sealedLen := int(binary.BigEndian.Uint16(header[tunnelCryptoSaltSize:]))
+	if sealedLen < tunnelCryptoTagSize || sealedLen > maxPlainLen+tunnelCryptoTagSize {
+		return nil, errTunnelInvalidLength
+	}
+	sealed := make([]byte, sealedLen)
+	if _, err := io.ReadFull(reader, sealed); err != nil {
+		return nil, err
+	}
+	aead, nonce, err := tunnelPacketAEAD(token, label, salt)
+	if err != nil {
+		return nil, err
+	}
+	plain, err := aead.Open(nil, nonce, sealed, []byte(label))
+	if err != nil {
+		return nil, errTunnelUnauthorized
+	}
+	if len(plain) > maxPlainLen {
+		return nil, errTunnelInvalidLength
+	}
+	return plain, nil
+}
+
+func tunnelPacketAEAD(token string, label string, salt []byte) (cipher.AEAD, []byte, error) {
+	if len(salt) != tunnelCryptoSaltSize {
+		return nil, nil, errTunnelInvalidLength
+	}
+	base := sha256.Sum256([]byte("tcptun native v2 key\x00" + token))
+	keyMAC := hmac.New(sha256.New, base[:])
+	if _, err := keyMAC.Write([]byte("key\x00" + label)); err != nil {
+		return nil, nil, err
+	}
+	if _, err := keyMAC.Write(salt); err != nil {
+		return nil, nil, err
+	}
+	key := keyMAC.Sum(nil)
+	nonceMAC := hmac.New(sha256.New, base[:])
+	if _, err := nonceMAC.Write([]byte("nonce\x00" + label)); err != nil {
+		return nil, nil, err
+	}
+	if _, err := nonceMAC.Write(salt); err != nil {
+		return nil, nil, err
+	}
+	nonceSum := nonceMAC.Sum(nil)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, nil, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	copy(nonce, nonceSum)
+	return aead, nonce, nil
 }
 
 func writeTunnelUDPFrame(w io.Writer, frame tunnelUDPFrame) error {
@@ -854,8 +904,4 @@ func readStringN(reader io.Reader, n int) (string, error) {
 		return "", err
 	}
 	return string(buf), nil
-}
-
-func tokenMatches(expected string, actual string) bool {
-	return expected == "" || expected == actual
 }

@@ -486,7 +486,7 @@ func (s *proxyServer) initMuxStreamUDP(conn net.Conn, host string, port uint16) 
 	}); err != nil {
 		return nil, closeAfterError(conn, err)
 	}
-	if err := readTunnelResponse(reader); err != nil {
+	if err := readTunnelResponse(reader, s.cfg.Token); err != nil {
 		return nil, closeAfterError(conn, err)
 	}
 	return &protocolUDPUpstream{

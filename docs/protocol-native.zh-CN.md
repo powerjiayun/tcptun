@@ -4,6 +4,8 @@ English version: [protocol-native.md](protocol-native.md)
 
 `native` 是本项目原生隧道协议，也是默认协议。它面向本项目自己的 client/server 组合，重点是低开销、功能完整和实现可控。
 
+native 的请求和响应头会使用共享 token 派生出的 AEAD 密钥加密，每个包带随机 salt。token 和目标 host 不再明文传输，也不再使用旧版固定明文 magic。
+
 ## 适用场景
 
 - client 和 server 都使用本项目程序。
@@ -29,7 +31,7 @@ English version: [protocol-native.md](protocol-native.md)
 | 字段 | 位置 | 含义 |
 | --- | --- | --- |
 | `tunnel_protocol: "native"` | server/client | 启用本项目原生协议。 |
-| `token` | server/client | 共享认证 token。server 配置为空时不强制认证；生产环境建议总是设置。 |
+| `token` | server/client | 共享认证和密钥派生 token。生产环境建议总是设置长随机值。 |
 | `tunnel_transport` | server/client | 承载层。默认 `raw`，也可使用 `ws`、`h2`、`h3`。 |
 | `tunnel_mux` | server/client | 是否开启多路复用。tcptun 两端部署时建议开启。 |
 | `tunnel_path` | server/client | HTTP/WebSocket 类 transport 使用的路径。raw transport 可保留默认值。 |

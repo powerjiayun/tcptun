@@ -315,7 +315,7 @@ func (s *proxyServer) writeMuxStreamTCPRequest(conn net.Conn, req socksRequest) 
 	}); err != nil {
 		return closeAfterError(conn, err)
 	}
-	if err := readTunnelResponse(conn); err != nil {
+	if err := readTunnelResponse(conn, s.cfg.Token); err != nil {
 		return closeAfterError(conn, err)
 	}
 	return nil
