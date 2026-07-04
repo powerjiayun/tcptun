@@ -52,6 +52,30 @@ You can also build directly with Go:
 go build -trimpath -ldflags "-s -w" -o bin/tcptun ./cmd/tcptun
 ```
 
+## Android AAR
+
+The Android gomobile bridge lives in `mobile/androidbridge` and is built from the main module. Install `gomobile`, set `ANDROID_HOME` or `ANDROID_SDK_ROOT`, and make sure the Android NDK is installed, then run:
+
+```sh
+./scripts/build-androidbridge.sh
+```
+
+The default output is `dist/androidbridge.aar`. Override it with:
+
+```sh
+ANDROIDBRIDGE_AAR_OUT=/path/to/app/libs/androidbridge.aar ./scripts/build-androidbridge.sh
+```
+
+In the Android project, place the AAR under `app/libs` and depend on it, for example:
+
+```kotlin
+dependencies {
+    implementation(files("libs/androidbridge.aar"))
+}
+```
+
+The gomobile API remains compatible with the existing Kotlin reflection path: package `androidbridge`, class `Androidbridge`, callbacks `LogCallback.OnLog(line: String)` and `SocketProtector.Protect(fd: Long): Boolean`.
+
 ## Run
 
 Start with automatic gateway discovery:

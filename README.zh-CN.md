@@ -52,6 +52,30 @@ bin/tcptun
 go build -trimpath -ldflags "-s -w" -o bin/tcptun ./cmd/tcptun
 ```
 
+## Android AAR
+
+Android gomobile bridge 位于 `mobile/androidbridge`，直接使用主模块构建。安装 `gomobile`，设置 `ANDROID_HOME` 或 `ANDROID_SDK_ROOT`，并确保 Android NDK 已安装，然后执行：
+
+```sh
+./scripts/build-androidbridge.sh
+```
+
+默认输出路径是 `dist/androidbridge.aar`。可以用环境变量覆盖：
+
+```sh
+ANDROIDBRIDGE_AAR_OUT=/path/to/app/libs/androidbridge.aar ./scripts/build-androidbridge.sh
+```
+
+Android 项目把 AAR 放到 `app/libs` 后添加依赖，例如：
+
+```kotlin
+dependencies {
+    implementation(files("libs/androidbridge.aar"))
+}
+```
+
+gomobile API 保持与现有 Kotlin 反射路径兼容：package 为 `androidbridge`，class 为 `Androidbridge`，回调接口为 `LogCallback.OnLog(line: String)` 和 `SocketProtector.Protect(fd: Long): Boolean`。
+
 ## 运行
 
 使用自动网关发现启动：
