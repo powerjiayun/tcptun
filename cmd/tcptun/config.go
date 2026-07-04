@@ -470,17 +470,16 @@ func (w *configWizard) collect(ctx context.Context) (generateConfigOptions, erro
 	if err != nil {
 		return generateConfigOptions{}, err
 	}
-	opts.tunnelSecurity = "none"
-	if opts.protocol == tcptun.TunnelProtocolVLESS {
-		opts.tunnelSecurity, err = w.readChoice("Tunnel security", []string{"none", "reality"}, opts.tunnelSecurity, normalizeGeneratedSecurity)
-		if err != nil {
-			return generateConfigOptions{}, err
-		}
+	opts.tunnelSecurity, err = w.readChoice("Tunnel security", []string{"none", "reality"}, "none", normalizeGeneratedSecurity)
+	if err != nil {
+		return generateConfigOptions{}, err
 	}
 	if opts.tunnelSecurity == "reality" {
-		opts.tunnelFlow, err = w.readString("VLESS flow", defaultString(opts.tunnelFlow, "xtls-rprx-vision"))
-		if err != nil {
-			return generateConfigOptions{}, err
+		if opts.protocol == tcptun.TunnelProtocolVLESS {
+			opts.tunnelFlow, err = w.readString("VLESS flow", defaultString(opts.tunnelFlow, "xtls-rprx-vision"))
+			if err != nil {
+				return generateConfigOptions{}, err
+			}
 		}
 		opts.realityServerName, err = w.readString("REALITY client serverName", opts.realityServerName)
 		if err != nil {
@@ -786,8 +785,10 @@ func applyGeneratedSecurity(serverCfg *generatedRouteConfig, clientCfg *generate
 	}
 	serverCfg.TunnelSecurity = security
 	clientCfg.TunnelSecurity = security
-	serverCfg.TunnelFlow = strings.TrimSpace(opts.tunnelFlow)
-	clientCfg.TunnelFlow = strings.TrimSpace(opts.tunnelFlow)
+	if opts.protocol == tcptun.TunnelProtocolVLESS {
+		serverCfg.TunnelFlow = strings.TrimSpace(opts.tunnelFlow)
+		clientCfg.TunnelFlow = strings.TrimSpace(opts.tunnelFlow)
+	}
 	serverCfg.RealityPrivateKey = strings.TrimSpace(opts.realityPrivateKey)
 	serverCfg.RealityServerNames = splitCommaList(opts.realityServerNames)
 	serverCfg.RealityShortIDs = splitCommaList(opts.realityShortIDs)
@@ -909,9 +910,6 @@ func validateGeneratedOptions(target string, protocol string, opts generateConfi
 		return fmt.Errorf("invalid tunnel security %q; supported values: none, reality", security)
 	}
 	if security == "reality" {
-		if protocol != tcptun.TunnelProtocolVLESS {
-			return errors.New("REALITY config generation requires --protocol vless")
-		}
 		if opts.tunnelTLS {
 			return errors.New("REALITY cannot be combined with --tls")
 		}

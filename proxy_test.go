@@ -4291,6 +4291,50 @@ func TestVisionConnRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRealitySecurityAllowsNativeProtocol(t *testing.T) {
+	err := runProxy(t.Context(), config{
+		Mode:              proxyModeServer,
+		ListenAddr:        reserveTCPAddr(t),
+		Token:             "secret",
+		TunnelProtocol:    tunnelProtocolNative,
+		TunnelTransport:   tunnelTransportRaw,
+		TunnelSecurity:    tunnelSecurityReality,
+		RealityPrivateKey: "not-a-valid-key",
+		RealityServerName: "example.com",
+		RealityDest:       "example.com:443",
+		DialTimeout:       time.Second,
+		BufferSize:        4096,
+	}, io.Discard)
+	if err == nil {
+		t.Fatal("runProxy succeeded with invalid REALITY private key")
+	}
+	if strings.Contains(err.Error(), "vless protocol") {
+		t.Fatalf("native REALITY was rejected by protocol validation: %v", err)
+	}
+	if !strings.Contains(err.Error(), "REALITY private key") {
+		t.Fatalf("runProxy error = %v, want REALITY private key validation", err)
+	}
+}
+
+func TestRealitySecurityRequiresRawTransport(t *testing.T) {
+	err := runProxy(t.Context(), config{
+		Mode:            proxyModeServer,
+		ListenAddr:      "127.0.0.1:0",
+		Token:           "secret",
+		TunnelProtocol:  tunnelProtocolNative,
+		TunnelTransport: tunnelTransportWS,
+		TunnelSecurity:  tunnelSecurityReality,
+		DialTimeout:     time.Second,
+		BufferSize:      4096,
+	}, io.Discard)
+	if err == nil {
+		t.Fatal("runProxy accepted REALITY over ws")
+	}
+	if !strings.Contains(err.Error(), "client/server mode with raw transport") {
+		t.Fatalf("runProxy error = %v", err)
+	}
+}
+
 func TestParseRealityShortID(t *testing.T) {
 	got, err := parseRealityShortID("0a1b")
 	if err != nil {

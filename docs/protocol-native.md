@@ -22,7 +22,7 @@ Native request and response headers are encrypted with an AEAD key derived from 
 | Tunnel multiplexing | Supported |
 | raw/ws/h2/h3 transport | Supported |
 | TLS | Supported |
-| REALITY/Vision | Not supported |
+| REALITY/Vision | REALITY only, raw transport |
 | External Xray compatibility | Not applicable |
 | Server outbound targets | Public IPs only |
 

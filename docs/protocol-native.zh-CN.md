@@ -22,7 +22,7 @@ native 的请求和响应头会使用共享 token 派生出的 AEAD 密钥加密
 | tunnel 多路复用 | 支持 |
 | raw/ws/h2/h3 transport | 支持 |
 | TLS | 支持 |
-| REALITY/Vision | 不支持 |
+| REALITY/Vision | 仅 REALITY，raw transport |
 | 外部 Xray 兼容 | 不适用 |
 | 服务端出站目标 | 仅允许公网 IP |
 

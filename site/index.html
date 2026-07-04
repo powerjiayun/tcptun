@@ -57,15 +57,17 @@
             <span></span>
           </div>
           <pre><code>$ tcptun server \
-  --listen 0.0.0.0:443 \
-  --tunnel-protocol vless \
+  --listen 0.0.0.0:9443 \
+  --tunnel-protocol native \
   --transport raw \
-  --tunnel-security reality \
-  --flow xtls-rprx-vision
+  --token change-me
 
 $ tcptun client \
   --listen 127.0.0.1:1080 \
-  --server-addr proxy.example.com:443</code></pre>
+  --server-addr proxy.example.com:9443 \
+  --tunnel-protocol native \
+  --transport raw \
+  --token change-me</code></pre>
         </div>
       </section>
 
@@ -104,8 +106,9 @@ $ tcptun client \
           </p>
         </div>
         <div class="code-card">
-          <pre><code>tcptun config --protocol vless \
-  --server-addr proxy.example.com:443
+          <pre><code>tcptun config --protocol native \
+  --transport raw \
+  --server-addr proxy.example.com:9443
 
 tcptun server --config server.json
 tcptun client --config client.json</code></pre>
@@ -126,9 +129,9 @@ tcptun client --config client.json</code></pre>
             <span class="step-index">1</span>
             <h3 data-i18n="guide.step1Title">Generate config</h3>
             <p data-i18n="guide.step1Body">Create server, client, and route files with one shared token.</p>
-            <pre><code>tcptun config --protocol vless \
+            <pre><code>tcptun config --protocol native \
   --transport raw \
-  --server-addr proxy.example.com:443</code></pre>
+  --server-addr proxy.example.com:9443</code></pre>
           </article>
           <article>
             <span class="step-index">2</span>
@@ -154,12 +157,30 @@ tcptun client --config client.json</code></pre>
           <div>
             <h3 data-i18n="guide.realityTitle">REALITY/Vision</h3>
             <p data-i18n="guide.realityBody">
-              Use VLESS over raw transport with <code>tunnel_security</code> set
-              to <code>reality</code> and <code>flow</code> set to
-              <code>xtls-rprx-vision</code>. The server needs a private key,
-              allowed server names, and a fallback destination; the client needs
-              the matching public key, server name, UUID, and short ID.
+              Use raw transport with <code>tunnel_security</code> set to
+              <code>reality</code>. For Xray-compatible Vision, use VLESS and
+              set <code>flow</code> to <code>xtls-rprx-vision</code>. The server
+              needs a private key, allowed server names, and a fallback
+              destination; the client needs the matching public key, server name,
+              and short ID.
             </p>
+            <div class="reality-examples">
+              <div>
+                <h4 data-i18n="guide.nativeRealityExample">native + reality</h4>
+                <pre><code>tcptun config --protocol native \
+  --transport raw \
+  --tunnel-security reality \
+  --server-addr proxy.example.com:443</code></pre>
+              </div>
+              <div>
+                <h4 data-i18n="guide.vlessRealityExample">vless + reality</h4>
+                <pre><code>tcptun config --protocol vless \
+  --transport raw \
+  --tunnel-security reality \
+  --flow xtls-rprx-vision \
+  --server-addr proxy.example.com:443</code></pre>
+              </div>
+            </div>
           </div>
           <div>
             <h3 data-i18n="guide.nginxTitle">Behind nginx</h3>
@@ -179,8 +200,7 @@ tcptun client --config client.json</code></pre>
           <p data-i18n="generator.body">
             Fill in the deployment details and generate matching
             <code>server.json</code>, <code>client.json</code>, and
-            <code>route.json</code>. Tokens and REALITY keys are generated in
-            your browser.
+            <code>route.json</code>. Tokens are generated in your browser.
           </p>
         </div>
         <div class="generator">
@@ -213,11 +233,11 @@ tcptun client --config client.json</code></pre>
             </div>
             <div class="field-row">
               <label for="gen-server-addr" data-i18n="generator.serverAddr">Server addr</label>
-              <input id="gen-server-addr" type="text" value="proxy.example.com:443">
+              <input id="gen-server-addr" type="text" value="proxy.example.com:9443">
             </div>
             <div class="field-row">
               <label for="gen-server-listen" data-i18n="generator.serverListen">Server listen</label>
-              <input id="gen-server-listen" type="text" value="0.0.0.0:443">
+              <input id="gen-server-listen" type="text" value="0.0.0.0:9443">
             </div>
             <div class="field-row">
               <label for="gen-client-listen" data-i18n="generator.clientListen">Client listen</label>

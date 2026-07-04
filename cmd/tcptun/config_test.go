@@ -143,6 +143,54 @@ func TestGenerateConfigFilesRealityAutoGeneratesKeys(t *testing.T) {
 	}
 }
 
+func TestGenerateConfigFilesNativeRealityAutoGeneratesKeys(t *testing.T) {
+	dir := t.TempDir()
+	opts := generateConfigOptions{
+		target:             configTargetBoth,
+		protocol:           tcptun.TunnelProtocolNative,
+		transport:          tcptun.TunnelTransportRaw,
+		outDir:             dir,
+		serverOutput:       "server.json",
+		clientOutput:       "client.json",
+		serverListen:       "0.0.0.0:443",
+		clientListen:       "127.0.0.1:1080",
+		serverAddr:         "proxy.example.com:443",
+		tunnelSecurity:     "reality",
+		tunnelFlow:         "xtls-rprx-vision",
+		realityServerName:  "example.com",
+		realityServerNames: "example.com",
+		realityDest:        "example.com:443",
+		realityFingerprint: "chrome",
+		realitySpiderX:     "/",
+		overwrite:          true,
+	}
+	if err := generateConfigFiles(opts); err != nil {
+		t.Fatal(err)
+	}
+
+	server := readGeneratedConfigForTest(t, filepath.Join(dir, "server.json"))
+	client := readGeneratedConfigForTest(t, filepath.Join(dir, "client.json"))
+	if server.TunnelProtocol != tcptun.TunnelProtocolNative {
+		t.Fatalf("server tunnel_protocol = %q", server.TunnelProtocol)
+	}
+	if server.TunnelSecurity != tcptun.TunnelSecurityReality || client.TunnelSecurity != tcptun.TunnelSecurityReality {
+		t.Fatalf("tunnel_security mismatch: server=%q client=%q", server.TunnelSecurity, client.TunnelSecurity)
+	}
+	if server.TunnelFlow != "" || client.TunnelFlow != "" {
+		t.Fatalf("native reality should not set tunnel_flow: server=%q client=%q", server.TunnelFlow, client.TunnelFlow)
+	}
+	if server.RealityPrivateKey == "" {
+		t.Fatal("server reality_private_key is empty")
+	}
+	wantPublicKey, err := deriveRealityPublicKey(server.RealityPrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.RealityPublicKey != wantPublicKey {
+		t.Fatalf("client reality_public_key = %q, want %q", client.RealityPublicKey, wantPublicKey)
+	}
+}
+
 func TestRunInteractiveConfigGeneratesBothConfigs(t *testing.T) {
 	dir := t.TempDir()
 	opts := generateConfigOptions{
@@ -227,7 +275,7 @@ func TestRunInteractiveConfigRealityAutoGeneratesKeys(t *testing.T) {
 		tunnelPath:   "/proxy",
 	}
 	input := strings.Join([]string{
-		"2",
+		"",
 		"",
 		"",
 		"proxy.example.com:443",
@@ -236,7 +284,6 @@ func TestRunInteractiveConfigRealityAutoGeneratesKeys(t *testing.T) {
 		"",
 		"",
 		"2",
-		"",
 		"example.com",
 		"example.com",
 		"",
@@ -274,6 +321,9 @@ func TestRunInteractiveConfigRealityAutoGeneratesKeys(t *testing.T) {
 	}
 	if client.RealityPublicKey != wantPublicKey {
 		t.Fatalf("client reality_public_key = %q, want %q", client.RealityPublicKey, wantPublicKey)
+	}
+	if server.TunnelFlow != "" || client.TunnelFlow != "" {
+		t.Fatalf("native reality should not set tunnel_flow: server=%q client=%q", server.TunnelFlow, client.TunnelFlow)
 	}
 }
 

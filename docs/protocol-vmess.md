@@ -19,7 +19,7 @@ Chinese version: [protocol-vmess.zh-CN.md](protocol-vmess.zh-CN.md)
 | Tunnel multiplexing | Not supported |
 | raw/ws/h2/h3 transport | Supported |
 | TLS | Supported |
-| REALITY/Vision | Not supported |
+| REALITY/Vision | REALITY only, raw transport |
 | token format | UUID |
 | VMess body security | `none` only |
 | Server outbound targets | Public IPs only |

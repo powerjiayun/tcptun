@@ -331,6 +331,27 @@ code {
   padding: 22px;
 }
 
+.reality-examples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.reality-examples h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.reality-examples pre {
+  padding: 14px;
+  border: 1px solid rgba(125, 182, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(10, 14, 18, 0.55);
+  font-size: 12px;
+}
+
 .converter-section {
   border-top: 1px solid var(--line);
 }
@@ -680,6 +701,7 @@ textarea {
 
   .steps,
   .guide-notes,
+  .reality-examples,
   .converter,
   .generator,
   .doc-grid,

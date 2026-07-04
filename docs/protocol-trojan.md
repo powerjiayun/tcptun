@@ -19,7 +19,7 @@ Chinese version: [protocol-trojan.zh-CN.md](protocol-trojan.zh-CN.md)
 | Tunnel multiplexing | Not supported |
 | raw/ws/h2/h3 transport | Supported |
 | TLS | Strongly recommended |
-| REALITY/Vision | Not supported |
+| REALITY/Vision | REALITY only, raw transport |
 | token format | Trojan password |
 | Server outbound targets | Public IPs only |
 

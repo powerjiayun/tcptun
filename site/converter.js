@@ -2,7 +2,7 @@
   "use strict";
 
   const DEFAULT_CLIENT_LISTEN = "127.0.0.1:1080";
-  const DEFAULT_SERVER_LISTEN = "0.0.0.0:443";
+  const DEFAULT_SERVER_LISTEN = "0.0.0.0:9443";
   const SUPPORTED_PROTOCOLS = new Set(["vless", "vmess", "trojan"]);
   let generatedFiles = {};
   let activeGeneratedFile = "server";
@@ -50,12 +50,14 @@
       "guide.step4Title": "Use the proxy",
       "guide.step4Body": "Point your browser, app, or CLI tool at the local listener.",
       "guide.realityTitle": "REALITY/Vision",
-      "guide.realityBody": "Use VLESS over raw transport with <code>tunnel_security</code> set to <code>reality</code> and <code>flow</code> set to <code>xtls-rprx-vision</code>. The server needs a private key, allowed server names, and a fallback destination; the client needs the matching public key, server name, UUID, and short ID.",
+      "guide.realityBody": "Use raw transport with <code>tunnel_security</code> set to <code>reality</code>. For Xray-compatible Vision, use VLESS and set <code>flow</code> to <code>xtls-rprx-vision</code>. The server needs a private key, allowed server names, and a fallback destination; the client needs the matching public key, server name, and short ID.",
+      "guide.nativeRealityExample": "native + reality",
+      "guide.vlessRealityExample": "vless + reality",
       "guide.nginxTitle": "Behind nginx",
       "guide.nginxBody": "Use WebSocket transport when placing tcptun behind a standard HTTP reverse proxy. Run the server on loopback and proxy the configured tunnel path to that local port.",
       "generator.eyebrow": "Config Generator",
       "generator.title": "Generate ready-to-run config files.",
-      "generator.body": "Fill in the deployment details and generate matching <code>server.json</code>, <code>client.json</code>, and <code>route.json</code>. Tokens and REALITY keys are generated in your browser.",
+      "generator.body": "Fill in the deployment details and generate matching <code>server.json</code>, <code>client.json</code>, and <code>route.json</code>. Tokens are generated in your browser.",
       "generator.protocol": "Protocol",
       "generator.transport": "Transport",
       "generator.security": "Security",
@@ -138,12 +140,14 @@
       "guide.step4Title": "使用代理",
       "guide.step4Body": "把浏览器、应用或 CLI 工具指向本地监听地址。",
       "guide.realityTitle": "REALITY/Vision",
-      "guide.realityBody": "使用 VLESS over raw transport，并将 <code>tunnel_security</code> 设为 <code>reality</code>、<code>flow</code> 设为 <code>xtls-rprx-vision</code>。服务端需要 private key、允许的 server names 和 fallback destination；客户端需要匹配的 public key、server name、UUID 和 short ID。",
+      "guide.realityBody": "使用 raw transport，并将 <code>tunnel_security</code> 设为 <code>reality</code>。兼容 Xray Vision 时使用 VLESS，并将 <code>flow</code> 设为 <code>xtls-rprx-vision</code>。服务端需要 private key、允许的 server names 和 fallback destination；客户端需要匹配的 public key、server name 和 short ID。",
+      "guide.nativeRealityExample": "native + reality",
+      "guide.vlessRealityExample": "vless + reality",
       "guide.nginxTitle": "放在 nginx 后面",
       "guide.nginxBody": "放在标准 HTTP 反向代理后面时使用 WebSocket transport。服务端监听本机回环地址，nginx 将配置的 tunnel path 转发到这个本地端口。",
       "generator.eyebrow": "配置生成器",
       "generator.title": "生成可直接运行的配置文件。",
-      "generator.body": "填写部署信息后生成匹配的 <code>server.json</code>、<code>client.json</code> 和 <code>route.json</code>。token 和 REALITY 密钥都在你的浏览器本地生成。",
+      "generator.body": "填写部署信息后生成匹配的 <code>server.json</code>、<code>client.json</code> 和 <code>route.json</code>。token 会在你的浏览器本地生成。",
       "generator.protocol": "协议",
       "generator.transport": "承载层",
       "generator.security": "安全层",
@@ -334,9 +338,6 @@
     const protocol = form.protocol;
     const transport = form.transport;
     const security = form.security;
-    if (security === "reality" && protocol !== "vless") {
-      throw new Error("REALITY config generation requires VLESS.");
-    }
     if (security === "reality" && transport !== "raw") {
       throw new Error("REALITY config generation requires raw transport.");
     }
@@ -374,19 +375,21 @@
     if (security === "reality") {
       const keys = await realityKeyPair();
       server.tunnel_security = "reality";
-      server.tunnel_flow = "xtls-rprx-vision";
       server.reality_private_key = keys.privateKey;
       server.reality_server_names = [form.serverName];
       server.reality_dest = form.realityDest;
       if (form.shortID) server.reality_short_ids = [form.shortID];
 
       client.tunnel_security = "reality";
-      client.tunnel_flow = "xtls-rprx-vision";
       client.reality_server_name = form.serverName;
       client.reality_fingerprint = "chrome";
       client.reality_public_key = keys.publicKey;
       client.reality_spider_x = "/";
       if (form.shortID) client.reality_short_id = form.shortID;
+      if (protocol === "vless") {
+        server.tunnel_flow = "xtls-rprx-vision";
+        client.tunnel_flow = "xtls-rprx-vision";
+      }
     }
 
     const route = {

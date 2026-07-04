@@ -445,8 +445,8 @@ func runProxy(ctx context.Context, cfg config, log io.Writer) (retErr error) {
 	if err != nil {
 		return err
 	}
-	if cfg.TunnelSecurity == tunnelSecurityReality && (cfg.Mode != proxyModeClient && cfg.Mode != proxyModeServer || cfg.TunnelTransport != tunnelTransportRaw || cfg.TunnelProtocol != tunnelProtocolVLESS) {
-		return errors.New("REALITY tunnel security requires client/server mode with raw transport and vless protocol")
+	if cfg.TunnelSecurity == tunnelSecurityReality && (cfg.Mode != proxyModeClient && cfg.Mode != proxyModeServer || cfg.TunnelTransport != tunnelTransportRaw) {
+		return errors.New("REALITY tunnel security requires client/server mode with raw transport")
 	}
 	if cfg.TunnelSecurity == tunnelSecurityReality && cfg.TunnelTLS {
 		return errors.New("REALITY tunnel security cannot be combined with tunnel TLS")

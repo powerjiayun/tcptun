@@ -19,7 +19,7 @@ English version: [protocol-vmess.md](protocol-vmess.md)
 | tunnel 多路复用 | 不支持 |
 | raw/ws/h2/h3 transport | 支持 |
 | TLS | 支持 |
-| REALITY/Vision | 不支持 |
+| REALITY/Vision | 仅 REALITY，raw transport |
 | token 格式 | UUID |
 | VMess security | 仅 `none` |
 | 服务端出站目标 | 仅允许公网 IP |

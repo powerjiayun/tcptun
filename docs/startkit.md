@@ -87,7 +87,7 @@ These fields are loaded from `config.json`, `server.json`, or `client.json`.
 | `tunnel_tls_key` | server | Server TLS private key path. |
 | `tunnel_tls_server_name` | client | TLS SNI and certificate verification name. |
 | `tunnel_tls_insecure` | client | Skip TLS certificate verification. Use only for tests. |
-| `tunnel_security` | server/client | Extra security layer. Currently used for VLESS REALITY with value `reality`. |
+| `tunnel_security` | server/client | Extra security layer. `reality` wraps raw client/server tunnels; Vision flow is VLESS-specific. |
 | `tunnel_flow` | server/client | VLESS flow, for example `xtls-rprx-vision`. |
 | `tunnel_mux` | server/client | Enables tunnel multiplexing. `native` uses the built-in mux command; `vless` and `vmess` use Xray-compatible mux.cool frames; `trojan` uses tcptun-private mux when both ends are tcptun. |
 | `upstream_protocol` | client/local | Upstream protocol used for parsed proxy traffic: `socks5` or `mixed`. |
@@ -154,14 +154,14 @@ For parsed TCP proxy traffic, force-upstream route rules win first. Otherwise tc
 
 | Protocol | TCP | SOCKS5 UDP relay | Tunnel mux | TLS | REALITY/Vision | Xray compatibility target |
 | --- | --- | --- | --- | --- | --- | --- |
-| native | yes | yes | yes | yes | no | Not applicable |
-| vless | yes | yes | yes | yes | yes | VLESS TCP/UDP, REALITY/Vision, mux.cool |
-| vmess | yes | yes | yes | yes | no | VMess AEAD TCP/UDP, security none, mux.cool |
-| trojan | yes | yes | tcptun-to-tcptun | recommended | no | Trojan TCP/UDP |
+| native | yes | yes | yes | yes | REALITY only | tcptun-to-tcptun |
+| vless | yes | yes | yes | yes | REALITY/Vision | VLESS TCP/UDP, REALITY/Vision, mux.cool |
+| vmess | yes | yes | yes | yes | REALITY only | VMess AEAD TCP/UDP, security none, mux.cool |
+| trojan | yes | yes | tcptun-to-tcptun | recommended | REALITY only | Trojan TCP/UDP |
 
 ## Which Protocol Should I Use?
 
-- Use `native` when both sides run this project and you want the best feature coverage.
+- Use `native` when both sides run this project and you want the best feature coverage; it can also run over raw REALITY.
 - Use `vless` when you need VLESS or Xray REALITY/Vision compatibility.
 - Use `vmess` when you need Xray VMess AEAD TCP/UDP compatibility with `security: "none"`.
 - Use `trojan` when you need Trojan TCP/UDP compatibility, usually with raw TLS.
